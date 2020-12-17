@@ -2,42 +2,11 @@ package tinysl
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
-
-type service interface {
-	Call() string
-}
-
-type service2 interface {
-	Call2() string
-}
-
-type s string
-
-func (t s) Call() string {
-	return string(t)
-}
-
-func (t s) Call2() string {
-	return string(t) + "_2"
-}
-
-func getServiceC(counter *int) func() (service, error) {
-	return func() (service, error) {
-		i := *counter + 1
-		*counter = i
-		return s(fmt.Sprintf("%d attempt", i)), nil
-	}
-}
-
-func getServiceC2() (service2, error) {
-	return s("service"), nil
-}
 
 func TestServiceLocator(t *testing.T) {
 	t.Run("Service can be registered as Transient", testAdd(Transient))
@@ -45,12 +14,21 @@ func TestServiceLocator(t *testing.T) {
 	t.Run("Service can be registered as Singleton", testAdd(Singleton))
 	t.Run("Service cannot be registered twice", testAddTwice)
 	t.Run("Service cannot be registered twice regardless of life time", testAddTwiceDifferentLifetime)
-	t.Run("Same implementation can be registered for 2 different interfaces", testSameImplementationDifferentServices)
+	t.Run("Same implementation can be registered for 2 different interfaces",
+		testSameImplementationDifferentServices)
 	t.Run("Transient Service is always returned as a new instance", testTransientNewInstance)
 	t.Run("PerContext Service instance is same per Context", testPerContextSameContext)
-	t.Run("PerContext Service instance is different for different Contexts", testPerContextDifferentContext)
-	t.Run("PerContext Service instance is not returned for cancelled Context", testPerContextCancelledContext)
-	t.Run("Singleton Service instance is always the same regardless of Context", testSingletonSameInstance)
+	t.Run("PerContext Service instance is different for different Contexts",
+		testPerContextDifferentContext)
+	t.Run("PerContext Service instance is not returned for cancelled Context",
+		testPerContextCancelledContext)
+	t.Run("Singleton Service instance is always the same regardless of Context",
+		testSingletonSameInstance)
+	t.Run("Can pass constructor with Context argument", testPassConstructorWithContext)
+	t.Run("Cannot pass constructor with more than 1 argument or argument not of type Context",
+		testCanPassNoArgsOrWithContextConstructor)
+	t.Run("Can pass constructor with Context argument only with PerContext lifetime",
+		testPassConstructorWithContextOnlyToPerContext)
 }
 
 func testAdd(lifetime lifetime) func(*testing.T) {
@@ -121,6 +99,7 @@ func testTransientNewInstance(t *testing.T) {
 	ls := New()
 	i := 0
 	err := ls.Add(Transient, getServiceC(&i))
+	assert.NoError(err, "should not return any error")
 	var sType service
 
 	s1, err := ls.Get(nil, reflect.TypeOf(&sType))
@@ -141,6 +120,7 @@ func testPerContextSameContext(t *testing.T) {
 	ls := New()
 	i := 0
 	err := ls.Add(PerContext, getServiceC(&i))
+	assert.NoError(err, "should not return any error")
 	ctx := context.TODO()
 	var sType service
 
@@ -162,6 +142,7 @@ func testPerContextDifferentContext(t *testing.T) {
 	ls := New()
 	i := 0
 	err := ls.Add(PerContext, getServiceC(&i))
+	assert.NoError(err, "should not return any error")
 	ctx1 := context.TODO()
 	ctx2 := context.Background()
 	var sType service
@@ -184,6 +165,7 @@ func testPerContextCancelledContext(t *testing.T) {
 	ls := New()
 	i := 0
 	err := ls.Add(PerContext, getServiceC(&i))
+	assert.NoError(err, "should not return any error")
 	ctx := context.TODO()
 	ctx, cancel := context.WithCancel(ctx)
 	var sType service
@@ -207,6 +189,7 @@ func testSingletonSameInstance(t *testing.T) {
 	ls := New()
 	i := 0
 	err := ls.Add(Singleton, getServiceC(&i))
+	assert.NoError(err, "should not return any error")
 	var sType service
 
 	s1, err := ls.Get(nil, reflect.TypeOf(&sType))
@@ -219,4 +202,41 @@ func testSingletonSameInstance(t *testing.T) {
 
 	assert.Equal(1, i, "constructor func should have been called once")
 	assert.Equal(s1, s2, "singleton services should be equal")
+}
+
+func testPassConstructorWithContext(t *testing.T) {
+	assert := assert.New(t)
+
+	ls := New()
+	var sType service
+
+	err := ls.Add(PerContext, withContextC)
+	assert.NoError(err, "should not return any error")
+
+	s, err := ls.Get(context.TODO(), reflect.TypeOf(&sType))
+	assert.NoError(err, "should not return any error")
+	assert.Equal("withContext", s.(service).Call(), "method should be invoked successfully")
+}
+
+func testCanPassNoArgsOrWithContextConstructor(t *testing.T) {
+	assert := assert.New(t)
+	badConstructor1 := func(ctx context.Context, i int) (service, error) {
+		return withContextC(ctx)
+	}
+
+	ls := New()
+	err := ls.Add(PerContext, badConstructor1)
+	assert.Error(err, "should return an error")
+	err = ls.Add(PerContext, getServiceC)
+	assert.Error(err, "should return an error")
+}
+
+func testPassConstructorWithContextOnlyToPerContext(t *testing.T) {
+	assert := assert.New(t)
+
+	ls := New()
+	err := ls.Add(Transient, withContextC)
+	assert.Error(err, "should return an error")
+	err = ls.Add(Singleton, withContextC)
+	assert.Error(err, "should return an error")
 }

@@ -8,6 +8,11 @@ import (
 	"github.com/pkg/errors"
 )
 
+const (
+	errAddTransientOrSingletonText string = "constructor should be of type func() (T, error) for Transient and Singleton, got %s"
+	errAddPerRequestText           string = "constructor should be of type func(context.Context) (T, error) for PerContext, got %s"
+)
+
 func New() ServiceLocator {
 	return &locator{
 		singletons:   make(map[string]interface{}),
@@ -16,6 +21,7 @@ func New() ServiceLocator {
 }
 
 var errorInterface = reflect.TypeOf((*error)(nil)).Elem()
+var contextInterface = reflect.TypeOf((*context.Context)(nil)).Elem()
 
 type record struct {
 	lifetime    lifetime
@@ -35,24 +41,35 @@ type locator struct {
 func (l *locator) sealed() {}
 
 func (l *locator) Add(lifetime lifetime, constructor interface{}) error {
+	errAddText := errAddTransientOrSingletonText
+	if lifetime == PerContext {
+		errAddText = errAddPerRequestText
+	}
+
 	t := reflect.TypeOf(constructor)
 	if t.Kind() != reflect.Func {
-		return errors.Errorf("%s constructor should be a function", t)
+		return errors.Errorf(errAddText, t)
 	}
 
 	numIn := t.NumIn()
-	if numIn != 0 {
-		return errors.Errorf("%s constructor should have 0 arguments, got %d", t, numIn)
+
+	if lifetime == PerContext && numIn > 1 ||
+		lifetime != PerContext && numIn != 0 {
+		return errors.Errorf(errAddText, t)
+	}
+
+	if numIn == 1 && !t.In(0).Implements(contextInterface) {
+		return errors.Errorf(errAddText, t)
 	}
 
 	numOut := t.NumOut()
 	if numOut != 2 {
-		return errors.Errorf("%s constructor should have 2 returning parameters, got %d", t, numOut)
+		return errors.Errorf(errAddText, t)
 	}
 
 	errType := t.Out(1)
 	if !errType.Implements(errorInterface) {
-		return errors.Errorf("2nd returning type of constructor should be error got %s", errType)
+		return errors.Errorf(errAddText, t)
 	}
 
 	l.constructorsRWM.RLock()
@@ -61,7 +78,7 @@ func (l *locator) Add(lifetime lifetime, constructor interface{}) error {
 	if v, ok := l.constructors[serviceType]; ok {
 		l.constructorsRWM.RUnlock()
 
-		return errors.Errorf("di has already registered constructor for %s: %T", serviceType, v)
+		return errors.Errorf("ServiceLocator has already registered constructor for %s: %T", serviceType, v)
 	}
 
 	l.constructorsRWM.RUnlock()
@@ -144,7 +161,13 @@ func (l *locator) Get(ctx context.Context, serviceType reflect.Type) (interface{
 
 	constructor := record.constructor
 	fn := reflect.ValueOf(constructor)
-	values := fn.Call(make([]reflect.Value, 0))
+	args := make([]reflect.Value, 0, 1)
+
+	if reflect.TypeOf(constructor).NumIn() == 1 {
+		args = append(args, reflect.ValueOf(ctx))
+	}
+
+	values := fn.Call(args)
 
 	if len(values) != 2 {
 		return nil, errors.Errorf("constructor %T returned an unexpected result: %v", constructor, values)
