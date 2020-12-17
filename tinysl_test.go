@@ -96,7 +96,6 @@ func testSameImplementationDifferentServices(t *testing.T) {
 
 	ls := New()
 	i := new(int)
-	ctx := context.TODO()
 	var sType service
 	var sType2 service2
 
@@ -105,11 +104,11 @@ func testSameImplementationDifferentServices(t *testing.T) {
 	err = ls.Add(Transient, getServiceC2)
 	assert.NoError(err, "should not return any error")
 
-	s1, err := ls.Get(ctx, reflect.TypeOf(&sType))
+	s1, err := ls.Get(nil, reflect.TypeOf(&sType))
 	assert.NoError(err, "should not return any error")
 	assert.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
 
-	s2, err := ls.Get(ctx, reflect.TypeOf(&sType2))
+	s2, err := ls.Get(nil, reflect.TypeOf(&sType2))
 	assert.NoError(err, "should not return any error")
 	assert.Equal("service_2", s2.(service2).Call2(), "method should be invoked successfully")
 
@@ -122,14 +121,13 @@ func testTransientNewInstance(t *testing.T) {
 	ls := New()
 	i := 0
 	err := ls.Add(Transient, getServiceC(&i))
-	ctx := context.TODO()
 	var sType service
 
-	s1, err := ls.Get(ctx, reflect.TypeOf(&sType))
+	s1, err := ls.Get(nil, reflect.TypeOf(&sType))
 	assert.NoError(err, "should not return any error")
 	assert.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
 
-	s2, err := ls.Get(ctx, reflect.TypeOf(&sType))
+	s2, err := ls.Get(nil, reflect.TypeOf(&sType))
 	assert.NoError(err, "should not return any error")
 	assert.Equal("2 attempt", s2.(service).Call(), "method should be invoked successfully")
 
@@ -155,7 +153,7 @@ func testPerContextSameContext(t *testing.T) {
 	assert.Equal("1 attempt", s2.(service).Call(), "method should be invoked successfully")
 
 	assert.Equal(1, i, "constructor func should have been called once")
-	assert.Equal(s1, s2, "transient services should not be equal")
+	assert.Equal(s1, s2, "PerContext services should be equal for same Context")
 }
 
 func testPerContextDifferentContext(t *testing.T) {
@@ -177,7 +175,7 @@ func testPerContextDifferentContext(t *testing.T) {
 	assert.Equal("2 attempt", s2.(service).Call(), "method should be invoked successfully")
 
 	assert.Equal(2, i, "constructor func should have been called twice")
-	assert.NotEqual(s1, s2, "transient services should not be equal")
+	assert.NotEqual(s1, s2, "PerContext services should not be equal for different Contexts")
 }
 
 func testPerContextCancelledContext(t *testing.T) {
@@ -209,24 +207,16 @@ func testSingletonSameInstance(t *testing.T) {
 	ls := New()
 	i := 0
 	err := ls.Add(Singleton, getServiceC(&i))
-	ctx1 := context.TODO()
-	ctx2 := context.Background()
 	var sType service
 
-	s1, err := ls.Get(ctx1, reflect.TypeOf(&sType))
+	s1, err := ls.Get(nil, reflect.TypeOf(&sType))
 	assert.NoError(err, "should not return any error")
 	assert.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
 
-	s2, err := ls.Get(ctx1, reflect.TypeOf(&sType))
-	assert.NoError(err, "should not return any error")
-	assert.Equal("1 attempt", s2.(service).Call(), "method should be invoked successfully")
-
-	s3, err := ls.Get(ctx2, reflect.TypeOf(&sType))
+	s2, err := ls.Get(nil, reflect.TypeOf(&sType))
 	assert.NoError(err, "should not return any error")
 	assert.Equal("1 attempt", s2.(service).Call(), "method should be invoked successfully")
 
 	assert.Equal(1, i, "constructor func should have been called once")
-	assert.Equal(s1, s2, "transient services should not be equal")
-	assert.Equal(s1, s3, "transient services should not be equal")
-	assert.Equal(s2, s3, "transient services should not be equal")
+	assert.Equal(s1, s2, "singleton services should be equal")
 }

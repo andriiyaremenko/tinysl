@@ -106,36 +106,32 @@ func (l *locator) Get(ctx context.Context, serviceType reflect.Type) (interface{
 		l.singletonsRWM.RUnlock()
 	}
 
-	l.perContextRWM.RLock()
-
-	if l.perContext[ctx] == nil {
-		l.perContextRWM.RUnlock()
-		l.perContextRWM.Lock()
-
-		l.perContext[ctx] = make(map[string]interface{})
-
-		l.perContextRWM.Unlock()
-		l.perContextRWM.RLock()
-
-		go func() {
-			<-ctx.Done()
-
-			l.perContextRWM.Lock()
-
-			delete(l.perContext, ctx)
-
-			l.perContextRWM.Unlock()
-		}()
-	}
-
-	l.perContextRWM.RUnlock()
-
 	if record.lifetime == PerContext {
 		if err := ctx.Err(); err != nil {
 			return nil, errors.Wrapf(err, "PerContext service %s cannot be served for cancelled context", serviceType)
 		}
 
 		l.perContextRWM.RLock()
+
+		if l.perContext[ctx] == nil {
+			l.perContextRWM.RUnlock()
+			l.perContextRWM.Lock()
+
+			l.perContext[ctx] = make(map[string]interface{})
+
+			l.perContextRWM.Unlock()
+			l.perContextRWM.RLock()
+
+			go func() {
+				<-ctx.Done()
+
+				l.perContextRWM.Lock()
+
+				delete(l.perContext, ctx)
+
+				l.perContextRWM.Unlock()
+			}()
+		}
 
 		if service, ok := l.perContext[ctx][serviceName]; ok {
 			l.perContextRWM.RUnlock()
