@@ -10,18 +10,19 @@ import (
 
 const (
 	errAddTransientOrSingletonText string = "constructor should be of type func() (T, error) for Transient and Singleton, got %s"
-	errAddPerRequestText           string = "constructor should be of type func(context.Context) (T, error) for PerContext, got %s"
+	errAddPerRequestText           string = "constructor should be of type func()|(context.Context) (T, error) for PerContext, got %s"
 )
 
+var errorInterface = reflect.TypeOf((*error)(nil)).Elem()
+var contextInterface = reflect.TypeOf((*context.Context)(nil)).Elem()
+
+// returns new ServiceLocator
 func New() ServiceLocator {
 	return &locator{
 		singletons:   make(map[string]interface{}),
 		perContext:   make(map[context.Context]map[string]interface{}),
 		constructors: make(map[string]record)}
 }
-
-var errorInterface = reflect.TypeOf((*error)(nil)).Elem()
-var contextInterface = reflect.TypeOf((*context.Context)(nil)).Elem()
 
 type record struct {
 	lifetime    lifetime
@@ -91,10 +92,12 @@ func (l *locator) Add(lifetime lifetime, constructor interface{}) error {
 	return nil
 }
 
-func (l *locator) Get(ctx context.Context, serviceType reflect.Type) (interface{}, error) {
+func (l *locator) Get(ctx context.Context, servicePrt interface{}) (interface{}, error) {
+	serviceType := reflect.TypeOf(servicePrt)
 	if serviceType.Kind() != reflect.Ptr {
 		return nil, errors.Errorf("service type should be pointer type, got: %s", serviceType)
 	}
+
 	serviceName := serviceType.Elem().String()
 
 	if l.constructors == nil {
@@ -127,6 +130,10 @@ func (l *locator) Get(ctx context.Context, serviceType reflect.Type) (interface{
 	}
 
 	if record.lifetime == PerContext {
+		if ctx == nil {
+			return nil, errors.Errorf("PerContext service %s cannot be served for nil context", serviceType)
+		}
+
 		if err := ctx.Err(); err != nil {
 			return nil, errors.Wrapf(err, "PerContext service %s cannot be served for cancelled context", serviceType)
 		}

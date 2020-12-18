@@ -2,7 +2,6 @@ package tinysl
 
 import (
 	"context"
-	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -82,11 +81,11 @@ func testSameImplementationDifferentServices(t *testing.T) {
 	err = ls.Add(Transient, getServiceC2)
 	assert.NoError(err, "should not return any error")
 
-	s1, err := ls.Get(nil, reflect.TypeOf(&sType))
+	s1, err := ls.Get(nil, &sType)
 	assert.NoError(err, "should not return any error")
 	assert.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
 
-	s2, err := ls.Get(nil, reflect.TypeOf(&sType2))
+	s2, err := ls.Get(nil, &sType2)
 	assert.NoError(err, "should not return any error")
 	assert.Equal("service_2", s2.(service2).Call2(), "method should be invoked successfully")
 
@@ -102,11 +101,11 @@ func testTransientNewInstance(t *testing.T) {
 	assert.NoError(err, "should not return any error")
 	var sType service
 
-	s1, err := ls.Get(nil, reflect.TypeOf(&sType))
+	s1, err := ls.Get(nil, &sType)
 	assert.NoError(err, "should not return any error")
 	assert.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
 
-	s2, err := ls.Get(nil, reflect.TypeOf(&sType))
+	s2, err := ls.Get(nil, &sType)
 	assert.NoError(err, "should not return any error")
 	assert.Equal("2 attempt", s2.(service).Call(), "method should be invoked successfully")
 
@@ -124,11 +123,11 @@ func testPerContextSameContext(t *testing.T) {
 	ctx := context.TODO()
 	var sType service
 
-	s1, err := ls.Get(ctx, reflect.TypeOf(&sType))
+	s1, err := ls.Get(ctx, &sType)
 	assert.NoError(err, "should not return any error")
 	assert.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
 
-	s2, err := ls.Get(ctx, reflect.TypeOf(&sType))
+	s2, err := ls.Get(ctx, &sType)
 	assert.NoError(err, "should not return any error")
 	assert.Equal("1 attempt", s2.(service).Call(), "method should be invoked successfully")
 
@@ -147,11 +146,11 @@ func testPerContextDifferentContext(t *testing.T) {
 	ctx2 := context.Background()
 	var sType service
 
-	s1, err := ls.Get(ctx1, reflect.TypeOf(&sType))
+	s1, err := ls.Get(ctx1, &sType)
 	assert.NoError(err, "should not return any error")
 	assert.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
 
-	s2, err := ls.Get(ctx2, reflect.TypeOf(&sType))
+	s2, err := ls.Get(ctx2, &sType)
 	assert.NoError(err, "should not return any error")
 	assert.Equal("2 attempt", s2.(service).Call(), "method should be invoked successfully")
 
@@ -170,13 +169,13 @@ func testPerContextCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(ctx)
 	var sType service
 
-	s, err := ls.Get(ctx, reflect.TypeOf(&sType))
+	s, err := ls.Get(ctx, &sType)
 	assert.NoError(err, "should not return any error")
 	assert.Equal("1 attempt", s.(service).Call(), "method should be invoked successfully")
 
 	cancel()
 
-	s, err = ls.Get(ctx, reflect.TypeOf(&sType))
+	s, err = ls.Get(ctx, &sType)
 
 	assert.Nil(s, "should be nil")
 	assert.Error(err, "should return an error")
@@ -192,11 +191,11 @@ func testSingletonSameInstance(t *testing.T) {
 	assert.NoError(err, "should not return any error")
 	var sType service
 
-	s1, err := ls.Get(nil, reflect.TypeOf(&sType))
+	s1, err := ls.Get(nil, &sType)
 	assert.NoError(err, "should not return any error")
 	assert.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
 
-	s2, err := ls.Get(nil, reflect.TypeOf(&sType))
+	s2, err := ls.Get(nil, &sType)
 	assert.NoError(err, "should not return any error")
 	assert.Equal("1 attempt", s2.(service).Call(), "method should be invoked successfully")
 
@@ -213,7 +212,7 @@ func testPassConstructorWithContext(t *testing.T) {
 	err := ls.Add(PerContext, withContextC)
 	assert.NoError(err, "should not return any error")
 
-	s, err := ls.Get(context.TODO(), reflect.TypeOf(&sType))
+	s, err := ls.Get(context.TODO(), &sType)
 	assert.NoError(err, "should not return any error")
 	assert.Equal("withContext", s.(service).Call(), "method should be invoked successfully")
 }
