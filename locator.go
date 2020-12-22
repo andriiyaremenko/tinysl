@@ -19,6 +19,9 @@ var contextInterface = reflect.TypeOf((*context.Context)(nil)).Elem()
 // returns new ServiceLocator
 func New() ServiceLocator {
 	return &locator{
+		singletonsMs: make(map[string]*sync.Mutex),
+		perContextMs: make(map[string]*sync.Mutex),
+
 		singletons:   make(map[string]interface{}),
 		perContext:   make(map[context.Context]map[string]interface{}),
 		constructors: make(map[string]record)}
@@ -30,9 +33,10 @@ type record struct {
 }
 
 type locator struct {
-	singletonsMu     sync.Mutex
-	perContextMu     sync.Mutex
-	constructorsRWMu sync.RWMutex
+	singletonsMs    map[string]*sync.Mutex
+	perContextMs    map[string]*sync.Mutex
+	perContextM     sync.Mutex
+	constructorsRWM sync.RWMutex
 
 	singletons   map[string]interface{}
 	perContext   map[context.Context]map[string]interface{}
@@ -73,21 +77,28 @@ func (l *locator) Add(lifetime lifetime, constructor interface{}) error {
 		return errors.Errorf(errAddText, t)
 	}
 
-	l.constructorsRWMu.RLock()
+	l.constructorsRWM.RLock()
 
 	serviceType := t.Out(0).String()
 	if v, ok := l.constructors[serviceType]; ok {
-		l.constructorsRWMu.RUnlock()
+		l.constructorsRWM.RUnlock()
 
 		return errors.Errorf("ServiceLocator has already registered constructor for %s: %T", serviceType, v)
 	}
 
-	l.constructorsRWMu.RUnlock()
-	l.constructorsRWMu.Lock()
+	l.constructorsRWM.RUnlock()
+	l.constructorsRWM.Lock()
 
 	l.constructors[serviceType] = record{lifetime: lifetime, constructor: constructor}
 
-	l.constructorsRWMu.Unlock()
+	switch lifetime {
+	case Singleton:
+		l.singletonsMs[serviceType] = new(sync.Mutex)
+	case PerContext:
+		l.perContextMs[serviceType] = new(sync.Mutex)
+	}
+
+	l.constructorsRWM.Unlock()
 
 	return nil
 }
@@ -104,11 +115,11 @@ func (l *locator) Get(ctx context.Context, servicePrt interface{}) (interface{},
 		return nil, errors.Errorf("constructor for %s not found", serviceName)
 	}
 
-	l.constructorsRWMu.RLock()
+	l.constructorsRWM.RLock()
 
 	record, ok := l.constructors[serviceName]
 
-	l.constructorsRWMu.RUnlock()
+	l.constructorsRWM.RUnlock()
 
 	if !ok {
 		return nil, errors.Errorf("constructor for %s not found", serviceType)
@@ -116,11 +127,11 @@ func (l *locator) Get(ctx context.Context, servicePrt interface{}) (interface{},
 
 	switch record.lifetime {
 	case PerContext:
-		l.perContextMu.Lock()
-		defer l.perContextMu.Unlock()
+		l.perContextMs[serviceName].Lock()
+		defer l.perContextMs[serviceName].Unlock()
 	case Singleton:
-		l.singletonsMu.Lock()
-		defer l.singletonsMu.Unlock()
+		l.singletonsMs[serviceName].Lock()
+		defer l.singletonsMs[serviceName].Unlock()
 	}
 
 	if record.lifetime == Singleton {
@@ -139,15 +150,19 @@ func (l *locator) Get(ctx context.Context, servicePrt interface{}) (interface{},
 		}
 
 		if l.perContext[ctx] == nil {
-			l.perContext[ctx] = make(map[string]interface{})
+			l.perContextM.Lock()
+			if l.perContext[ctx] == nil {
+				l.perContext[ctx] = make(map[string]interface{})
 
-			go func() {
-				<-ctx.Done()
+				go func() {
+					<-ctx.Done()
 
-				l.perContextMu.Lock()
-				delete(l.perContext, ctx)
-				l.perContextMu.Unlock()
-			}()
+					l.perContextM.Lock()
+					delete(l.perContext, ctx)
+					l.perContextM.Unlock()
+				}()
+			}
+			l.perContextM.Unlock()
 		}
 
 		if service, ok := l.perContext[ctx][serviceName]; ok {

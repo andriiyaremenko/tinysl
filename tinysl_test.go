@@ -28,6 +28,12 @@ func TestServiceLocator(t *testing.T) {
 		testCanPassNoArgsOrWithContextConstructor)
 	t.Run("Can pass constructor with Context argument only with PerContext lifetime",
 		testPassConstructorWithContextOnlyToPerContext)
+	t.Run("Can use ServiceLocator inside Transient services",
+		testCanUseSLInsideTransientServices)
+	t.Run("Can use ServiceLocator inside PerContext services",
+		testCanUseSLInsidePerContextServices)
+	t.Run("Can use ServiceLocator inside Singleton services",
+		testCanUseSLInsideSingletonServices)
 }
 
 func testAdd(lifetime lifetime) func(*testing.T) {
@@ -238,4 +244,37 @@ func testPassConstructorWithContextOnlyToPerContext(t *testing.T) {
 	assert.Error(err, "should return an error")
 	err = ls.Add(Singleton, withContextC)
 	assert.Error(err, "should return an error")
+}
+
+func testCanUseSLInsideTransientServices(t *testing.T) {
+	assert := assert.New(t)
+
+	sl := New()
+	err := sl.Add(Transient, emptyS)
+	assert.NoError(err, "should return no error")
+
+	err = sl.Add(Transient, s2BasedOnS(sl))
+	assert.NoError(err, "should return no error")
+}
+
+func testCanUseSLInsidePerContextServices(t *testing.T) {
+	assert := assert.New(t)
+
+	sl := New()
+	err := sl.Add(PerContext, emptyS)
+	assert.NoError(err, "should return no error")
+
+	err = sl.Add(PerContext, s2BasedOnS(sl))
+	assert.NoError(err, "should return no error")
+}
+
+func testCanUseSLInsideSingletonServices(t *testing.T) {
+	assert := assert.New(t)
+
+	sl := New()
+	err := sl.Add(Singleton, emptyS)
+	assert.NoError(err, "should return no error")
+
+	err = sl.Add(Singleton, s2BasedOnS(sl))
+	assert.NoError(err, "should return no error")
 }

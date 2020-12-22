@@ -38,3 +38,20 @@ func getServiceC2() (service2, error) {
 func withContextC(ctx context.Context) (service, error) {
 	return s("withContext"), nil
 }
+
+func emptyS() (service, error) {
+	return s("service"), nil
+}
+
+func s2BasedOnS(sl ServiceLocator) func() (service2, error) {
+	return func() (service2, error) {
+		var s1 service
+		_, err := sl.Get(context.TODO(), s1)
+
+		if err != nil {
+			return nil, err
+		}
+
+		return s("service_2"), nil
+	}
+}
