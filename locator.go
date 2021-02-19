@@ -16,7 +16,7 @@ const (
 var errorInterface = reflect.TypeOf((*error)(nil)).Elem()
 var contextInterface = reflect.TypeOf((*context.Context)(nil)).Elem()
 
-// returns new ServiceLocator
+// returns new ServiceLocator.
 func New() ServiceLocator {
 	return &locator{
 		singletonsMs: make(map[string]*sync.Mutex),
@@ -149,25 +149,26 @@ func (l *locator) Get(ctx context.Context, servicePrt interface{}) (interface{},
 			return nil, errors.Wrapf(err, "PerContext service %s cannot be served for cancelled context", serviceType)
 		}
 
+		l.perContextM.Lock()
 		if l.perContext[ctx] == nil {
-			l.perContextM.Lock()
-			if l.perContext[ctx] == nil {
-				l.perContext[ctx] = make(map[string]interface{})
+			l.perContext[ctx] = make(map[string]interface{})
 
-				go func() {
-					<-ctx.Done()
+			go func() {
+				<-ctx.Done()
 
-					l.perContextM.Lock()
-					delete(l.perContext, ctx)
-					l.perContextM.Unlock()
-				}()
-			}
-			l.perContextM.Unlock()
+				l.perContextM.Lock()
+				delete(l.perContext, ctx)
+				l.perContextM.Unlock()
+			}()
 		}
 
 		if service, ok := l.perContext[ctx][serviceName]; ok {
+			l.perContextM.Unlock()
+
 			return service, nil
 		}
+
+		l.perContextM.Unlock()
 	}
 
 	constructor := record.constructor
