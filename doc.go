@@ -35,5 +35,5 @@
 //
 // 		myService = service.(MyService)
 // 		// use myService
-//}
+// 	}
 package tinysl
