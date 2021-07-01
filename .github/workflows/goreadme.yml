@@ -1,0 +1,2 @@
+- name: goreadme
+  uses: posener/goreadme@v1.4.0
