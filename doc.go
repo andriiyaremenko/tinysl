@@ -22,7 +22,7 @@
 //
 // 	sl.Add(tinysl.PerContext, func(ctx context.Context) (MyService, error){
 // 		// get your service instance
-// 		return myservice{}, nil
+// 		return myservice("SomeService"), nil
 // 	})
 //
 // 	func MyRequestHandler(w http.ResponseWriter, req *http.Request) {
