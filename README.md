@@ -55,5 +55,12 @@ tinysl.Singleton
 tinysl.Transient
 ```
 
+Constructor types that can be used:
+
+```go
+func() (T, error)                // for PerContext, Transient and  Singleton
+func(context.Context) (T, error) // for PerContext only
+```
+
 ---
 Readme created from Go doc with [goreadme](https://github.com/posener/goreadme)
