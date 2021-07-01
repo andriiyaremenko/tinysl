@@ -13,5 +13,4 @@ jobs:
           uses: posener/goreadme@v1
           with:
             badge-godoc: 'true'
-            constants: 'true'
             functions: 'true'
