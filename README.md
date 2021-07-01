@@ -1,6 +1,6 @@
 # tinysl
 
-[![GoDoc](https://img.shields.io/badge/pkg.go.dev-doc-blue)](http://pkg.go.dev/.)
+[![GoDoc](https://img.shields.io/badge/pkg.go.dev-doc-blue)](http://pkg.go.dev/github.com/andriiyaremenko/tinysl)
 
 This package provides simple abstraction to manage lifetime scope of services.
 This package does not try to be another IOC container.
