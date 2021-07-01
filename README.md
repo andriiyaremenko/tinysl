@@ -58,7 +58,7 @@ tinysl.Transient
 Constructor types that can be used:
 
 ```go
-func() (T, error)                // for PerContext, Transient and  Singleton
+func() (T, error)                // for PerContext, Transient and Singleton
 func(context.Context) (T, error) // for PerContext only
 ```
 
