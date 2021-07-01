@@ -44,9 +44,8 @@ func MyRequestHandler(w http.ResponseWriter, req *http.Request) {
 
 	myService = service.(MyService)
 	// use myService
-```
-
 }
+```
 
 ---
 Readme created from Go doc with [goreadme](https://github.com/posener/goreadme)
