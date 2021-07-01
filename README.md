@@ -12,50 +12,38 @@ other scopes were created for convenience.
 To install tinysl:
 
 ```go
-github.com/andriiyaremenko/tinysl
+go get -u github.com/andriiyaremenko/tinysl
 ```
 
 How to use:
-type MyService interface {
 
 ```go
-SayHello() string
-```
-
+type MyService interface {
+	SayHello() string
 }
 
 type myservice string
 func (ms myservice) SayHello() string {
-
-```go
-return "Hello from " + myservice
-```
-
+	return "Hello from " + myservice
 }
 
 sl := tinysl.New()
 
 sl.Add(tinysl.PerContext, func(ctx context.Context) (MyService, error){
-
-```go
-// get your service instance
-return myservice{}, nil
-```
-
+	// get your service instance
+	return myservice{}, nil
 })
 
 func MyRequestHandler(w http.ResponseWriter, req *http.Request) {
+	var myService MyService
 
-```go
-var myService MyService
+	service, err := sl.Get(req.Context(), &myService)
+	if err != nil {
+		// process error
+	}
 
-service, err := sl.Get(req.Context(), &myService)
-if err != nil {
-	// process error
-}
-
-myService = service.(MyService)
-// use myService
+	myService = service.(MyService)
+	// use myService
 ```
 
 }
