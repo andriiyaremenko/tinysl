@@ -2,7 +2,7 @@ on:
   push:
     branches: [master]
   pull_request:
-    branches: [master]
+    branches: [actions/readme]
 jobs:
     goreadme:
         runs-on: ubuntu-latest
@@ -14,5 +14,4 @@ jobs:
           with:
             badge-godoc: 'true'
             badge-goreadme: 'true'
-            github-token: '${{ secrets.TOKEN }}'
             functions: 'true'
