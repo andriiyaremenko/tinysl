@@ -1,6 +1,6 @@
 # tinysl
 
-[![GoDoc](https://img.shields.io/badge/pkg.go.dev-doc-blue)](http://pkg.go.dev/github.com/andriiyaremenko/tinysl)
+[![GoDoc](https://img.shields.io/badge/pkg.go.dev-doc-blue)](http://pkg.go.dev/.)
 
 This package provides simple abstraction to manage lifetime scope of services.
 This package does not try to be another IOC container.
@@ -45,6 +45,14 @@ func MyRequestHandler(w http.ResponseWriter, req *http.Request) {
 	myService = service.(MyService)
 	// use myService
 }
+```
+
+Lifetime constants:
+
+```go
+tinysl.PerContext
+tinysl.Singleton
+tinysl.Transient
 ```
 
 ---
