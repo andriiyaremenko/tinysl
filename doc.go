@@ -36,4 +36,8 @@
 // 		myService = service.(MyService)
 // 		// use myService
 // 	}
+// Lifetime constants:
+// 	tinysl.PerContext
+// 	tinysl.Singleton
+// 	tinysl.Transient
 package tinysl
