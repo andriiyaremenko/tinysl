@@ -4,277 +4,343 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/suite"
 )
 
 func TestServiceLocator(t *testing.T) {
-	t.Run("Service can be registered as Transient", testAdd(Transient))
-	t.Run("Service can be registered as PerContext", testAdd(PerContext))
-	t.Run("Service can be registered as Singleton", testAdd(Singleton))
-	t.Run("Service cannot be registered twice", testAddTwice)
-	t.Run("Service cannot be registered twice regardless of life time", testAddTwiceDifferentLifetime)
-	t.Run("Same implementation can be registered for 2 different interfaces",
-		testSameImplementationDifferentServices)
-	t.Run("Transient Service is always returned as a new instance", testTransientNewInstance)
-	t.Run("PerContext Service instance is same per Context", testPerContextSameContext)
-	t.Run("PerContext Service instance is different for different Contexts",
-		testPerContextDifferentContext)
-	t.Run("PerContext Service instance is not returned for cancelled Context",
-		testPerContextCancelledContext)
-	t.Run("Singleton Service instance is always the same regardless of Context",
-		testSingletonSameInstance)
-	t.Run("Can pass constructor with Context argument", testPassConstructorWithContext)
-	t.Run("Cannot pass constructor with more than 1 argument or argument not of type Context",
-		testCanPassNoArgsOrWithContextConstructor)
-	t.Run("Can pass constructor with Context argument only with PerContext lifetime",
-		testPassConstructorWithContextOnlyToPerContext)
-	t.Run("Can use ServiceLocator inside Transient services",
-		testCanUseSLInsideTransientServices)
-	t.Run("Can use ServiceLocator inside PerContext services",
-		testCanUseSLInsidePerContextServices)
-	t.Run("Can use ServiceLocator inside Singleton services",
-		testCanUseSLInsideSingletonServices)
+	suite.Run(t, new(serviceRegistrationSuite))
+	suite.Run(t, new(serviceCreationSuite))
 }
 
-func testAdd(lifetime lifetime) func(*testing.T) {
-	return func(t *testing.T) {
-		assert := assert.New(t)
-
-		ls := New()
-		i := new(int)
-		err := ls.Add(lifetime, getServiceC(i))
-
-		assert.NoError(err, "should not return any error")
-	}
+type serviceRegistrationSuite struct {
+	suite.Suite
 }
 
-func testAddTwice(t *testing.T) {
-	assert := assert.New(t)
+func (suite *serviceRegistrationSuite) testAdd(lifetime lifetime) {
+	ls := New()
+	i := new(int)
+	err := ls.Add(lifetime, getServiceC(i))
 
+	suite.NoError(err, "should not return any error")
+}
+
+func (suite *serviceRegistrationSuite) TestAddSingleton() {
+	suite.testAdd(Singleton)
+}
+
+func (suite *serviceRegistrationSuite) TestAddPerContext() {
+	suite.testAdd(PerContext)
+}
+
+func (suite *serviceRegistrationSuite) TestAddTransient() {
+	suite.testAdd(Transient)
+}
+
+func (suite *serviceRegistrationSuite) TestAddDuplicate() {
 	ls := New()
 	i := new(int)
 
 	err := ls.Add(Transient, getServiceC(i))
-	assert.NoError(err, "should not return any error")
+	suite.NoError(err, "should not return any error")
 
 	err = ls.Add(Transient, getServiceC(i))
-	assert.Error(err, "should return an error")
+	suite.Error(err, "should return an error")
 }
 
-func testAddTwiceDifferentLifetime(t *testing.T) {
-	assert := assert.New(t)
-
+func (suite *serviceRegistrationSuite) TestAddDuplicateDifferentLifetime() {
 	ls := New()
 	i := new(int)
 
 	err := ls.Add(Transient, getServiceC(i))
-	assert.NoError(err, "should not return any error")
+	suite.NoError(err, "should not return any error")
 
 	err = ls.Add(PerContext, getServiceC(i))
-	assert.Error(err, "should return an error")
+	suite.Error(err, "should return an error")
 }
 
-func testSameImplementationDifferentServices(t *testing.T) {
-	assert := assert.New(t)
-
+func (suite *serviceRegistrationSuite) TestSameImplementationDifferentInterfaces() {
 	ls := New()
 	i := new(int)
 	var sType service
 	var sType2 service2
 
 	err := ls.Add(Transient, getServiceC(i))
-	assert.NoError(err, "should not return any error")
+	suite.NoError(err, "should not return any error")
 	err = ls.Add(Transient, getServiceC2)
-	assert.NoError(err, "should not return any error")
+	suite.NoError(err, "should not return any error")
 
 	s1, err := ls.Get(nil, &sType)
-	assert.NoError(err, "should not return any error")
-	assert.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
+	suite.NoError(err, "should not return any error")
+	suite.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
 
 	s2, err := ls.Get(nil, &sType2)
-	assert.NoError(err, "should not return any error")
-	assert.Equal("service_2", s2.(service2).Call2(), "method should be invoked successfully")
+	suite.NoError(err, "should not return any error")
+	suite.Equal("service_2", s2.(service2).Call2(), "method should be invoked successfully")
 
-	assert.NotEqual(s1, s2, "transient services should not be equal")
+	suite.NotEqual(s1, s2, "transient services should not be equal")
 }
 
-func testTransientNewInstance(t *testing.T) {
-	assert := assert.New(t)
+func (suite *serviceRegistrationSuite) TestCannotPassConstructorWithContextToSingleton() {
+	ls := New()
+	err := ls.Add(Singleton, withContextC)
 
+	suite.Error(err, "should return an error")
+}
+
+func (suite *serviceRegistrationSuite) TestCanPassConstructorWithContextToPerContext() {
+	ls := New()
+	err := ls.Add(PerContext, withContextC)
+
+	suite.NoError(err, "should not return an error")
+}
+
+func (suite *serviceRegistrationSuite) TestCanPassConstructorWithContextToTransient() {
+	ls := New()
+	err := ls.Add(Transient, withContextC)
+
+	suite.NoError(err, "should not return an error")
+}
+
+func (suite *serviceRegistrationSuite) TestCanUseServiceLocatorInsideTransientServices() {
+	sl := New()
+	err := sl.Add(Transient, emptyS)
+	suite.NoError(err, "should return no error")
+
+	err = sl.Add(Transient, s2BasedOnS(sl))
+	suite.NoError(err, "should return no error")
+}
+
+func (suite *serviceRegistrationSuite) TestCanUseServiceLocatorInsidePerContextServices() {
+	sl := New()
+	err := sl.Add(PerContext, emptyS)
+	suite.NoError(err, "should return no error")
+
+	err = sl.Add(PerContext, s2BasedOnS(sl))
+	suite.NoError(err, "should return no error")
+}
+
+func (suite *serviceRegistrationSuite) TestCanUseServiceLocatorInsideSingletonServices() {
+	sl := New()
+	err := sl.Add(Singleton, emptyS)
+	suite.NoError(err, "should return no error")
+
+	err = sl.Add(Singleton, s2BasedOnS(sl))
+	suite.NoError(err, "should return error")
+}
+
+func (suite *serviceRegistrationSuite) TestCannotAddVariadicFunctionAsConstructor() {
+	sl := New()
+	err := sl.Add(Singleton, func(s service, args ...string) (service2, error) {
+		return getServiceC2()
+	})
+
+	suite.Error(err, "should return no error")
+}
+
+type serviceCreationSuite struct {
+	suite.Suite
+}
+
+func (suite *serviceCreationSuite) TestGetNewTransientInstance() {
 	ls := New()
 	i := 0
 	err := ls.Add(Transient, getServiceC(&i))
-	assert.NoError(err, "should not return any error")
-	var sType service
 
+	suite.NoError(err, "should not return any error")
+
+	var sType service
 	s1, err := ls.Get(nil, &sType)
-	assert.NoError(err, "should not return any error")
-	assert.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
+
+	suite.NoError(err, "should not return any error")
+	suite.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
 
 	s2, err := ls.Get(nil, &sType)
-	assert.NoError(err, "should not return any error")
-	assert.Equal("2 attempt", s2.(service).Call(), "method should be invoked successfully")
 
-	assert.Equal(2, i, "constructor func should have been called twice")
-	assert.NotEqual(s1, s2, "transient services should not be equal")
+	suite.NoError(err, "should not return any error")
+	suite.Equal("2 attempt", s2.(service).Call(), "method should be invoked successfully")
+	suite.Equal(2, i, "constructor func should have been called twice")
+	suite.NotEqual(s1, s2, "transient services should not be equal")
 }
 
-func testPerContextSameContext(t *testing.T) {
-	assert := assert.New(t)
-
+func (suite *serviceCreationSuite) TestGetPerContextInstanceWithSameContext() {
 	ls := New()
 	i := 0
 	err := ls.Add(PerContext, getServiceC(&i))
-	assert.NoError(err, "should not return any error")
+
+	suite.NoError(err, "should not return any error")
+
 	ctx := context.TODO()
 	var sType service
 
 	s1, err := ls.Get(ctx, &sType)
-	assert.NoError(err, "should not return any error")
-	assert.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
+
+	suite.NoError(err, "should not return any error")
+	suite.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
 
 	s2, err := ls.Get(ctx, &sType)
-	assert.NoError(err, "should not return any error")
-	assert.Equal("1 attempt", s2.(service).Call(), "method should be invoked successfully")
 
-	assert.Equal(1, i, "constructor func should have been called once")
-	assert.Equal(s1, s2, "PerContext services should be equal for same Context")
+	suite.NoError(err, "should not return any error")
+	suite.Equal("1 attempt", s2.(service).Call(), "method should be invoked successfully")
+	suite.Equal(1, i, "constructor func should have been called once")
+	suite.Equal(s1, s2, "PerContext services should be equal for same Context")
 }
 
-func testPerContextDifferentContext(t *testing.T) {
-	assert := assert.New(t)
-
+func (suite *serviceCreationSuite) TestGetPerContextInstanceWithDifferentContext() {
 	ls := New()
 	i := 0
 	err := ls.Add(PerContext, getServiceC(&i))
-	assert.NoError(err, "should not return any error")
+
+	suite.NoError(err, "should not return any error")
+
 	ctx1 := context.TODO()
 	ctx2 := context.Background()
-	var sType service
 
+	var sType service
 	s1, err := ls.Get(ctx1, &sType)
-	assert.NoError(err, "should not return any error")
-	assert.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
+
+	suite.NoError(err, "should not return any error")
+	suite.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
 
 	s2, err := ls.Get(ctx2, &sType)
-	assert.NoError(err, "should not return any error")
-	assert.Equal("2 attempt", s2.(service).Call(), "method should be invoked successfully")
 
-	assert.Equal(2, i, "constructor func should have been called twice")
-	assert.NotEqual(s1, s2, "PerContext services should not be equal for different Contexts")
+	suite.NoError(err, "should not return any error")
+	suite.Equal("2 attempt", s2.(service).Call(), "method should be invoked successfully")
+	suite.Equal(2, i, "constructor func should have been called twice")
+	suite.NotEqual(s1, s2, "PerContext services should not be equal for different Contexts")
 }
 
-func testPerContextCancelledContext(t *testing.T) {
-	assert := assert.New(t)
-
+func (suite *serviceCreationSuite) TestGetPerContextWithCancelledContext() {
 	ls := New()
 	i := 0
 	err := ls.Add(PerContext, getServiceC(&i))
-	assert.NoError(err, "should not return any error")
+
+	suite.NoError(err, "should not return any error")
+
+	var sType service
 	ctx := context.TODO()
 	ctx, cancel := context.WithCancel(ctx)
-	var sType service
-
 	s, err := ls.Get(ctx, &sType)
-	assert.NoError(err, "should not return any error")
-	assert.Equal("1 attempt", s.(service).Call(), "method should be invoked successfully")
 
+	suite.NoError(err, "should not return any error")
+	suite.Equal("1 attempt", s.(service).Call(), "method should be invoked successfully")
 	cancel()
 
 	s, err = ls.Get(ctx, &sType)
 
-	assert.Nil(s, "should be nil")
-	assert.Error(err, "should return an error")
-	assert.Equal(1, i, "constructor func should have been called once")
+	suite.Nil(s, "should be nil")
+	suite.Error(err, "should return an error")
+	suite.Equal(1, i, "constructor func should have been called once")
 }
 
-func testSingletonSameInstance(t *testing.T) {
-	assert := assert.New(t)
-
+func (suite *serviceCreationSuite) TestGetSingletonReturnsAlwaysSameInstance() {
 	ls := New()
 	i := 0
 	err := ls.Add(Singleton, getServiceC(&i))
-	assert.NoError(err, "should not return any error")
-	var sType service
 
+	suite.NoError(err, "should not return any error")
+
+	var sType service
 	s1, err := ls.Get(nil, &sType)
-	assert.NoError(err, "should not return any error")
-	assert.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
+
+	suite.NoError(err, "should not return any error")
+	suite.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
 
 	s2, err := ls.Get(nil, &sType)
-	assert.NoError(err, "should not return any error")
-	assert.Equal("1 attempt", s2.(service).Call(), "method should be invoked successfully")
 
-	assert.Equal(1, i, "constructor func should have been called once")
-	assert.Equal(s1, s2, "singleton services should be equal")
+	suite.NoError(err, "should not return any error")
+	suite.Equal("1 attempt", s2.(service).Call(), "method should be invoked successfully")
+	suite.Equal(1, i, "constructor func should have been called once")
+	suite.Equal(s1, s2, "singleton services should be equal")
 }
 
-func testPassConstructorWithContext(t *testing.T) {
-	assert := assert.New(t)
-
+func (suite *serviceCreationSuite) TestGetConstructorWithDependencies() {
 	ls := New()
-	var sType service
 
-	err := ls.Add(PerContext, withContextC)
-	assert.NoError(err, "should not return any error")
+	err := ls.Add(Singleton, emptyS)
+	suite.NoError(err, "should not return any error")
 
-	s, err := ls.Get(context.TODO(), &sType)
-	assert.NoError(err, "should not return any error")
-	assert.Equal("withContext", s.(service).Call(), "method should be invoked successfully")
+	err = ls.Add(Singleton, getServiceWithDependency)
+	suite.NoError(err, "should not return any error")
+
+	var sType service2
+	s, err := ls.Get(nil, &sType)
+
+	suite.NoError(err, "should not return any error")
+	suite.NotNil(s, "should return non nil service")
 }
 
-func testCanPassNoArgsOrWithContextConstructor(t *testing.T) {
-	assert := assert.New(t)
-	badConstructor1 := func(ctx context.Context, i int) (service, error) {
-		return withContextC(ctx)
-	}
-
+func (suite *serviceCreationSuite) TestGetConstructorWith2Dependencies() {
 	ls := New()
-	err := ls.Add(PerContext, badConstructor1)
-	assert.Error(err, "should return an error")
-	err = ls.Add(PerContext, getServiceC)
-	assert.Error(err, "should return an error")
+
+	err := ls.Add(Singleton, emptyS)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.Add(Singleton, getServiceWithDependency)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.Add(Singleton, getServiceWith2Dependencies)
+	suite.NoError(err, "should not return any error")
+
+	var sType service3
+	s, err := ls.Get(nil, &sType)
+
+	suite.NoError(err, "should not return any error")
+	suite.NotNil(s, "should not return non nil service")
 }
 
-func testPassConstructorWithContextOnlyToPerContext(t *testing.T) {
-	assert := assert.New(t)
-
+func (suite *serviceCreationSuite) TestGetConstructorWithDeepDependency() {
 	ls := New()
-	err := ls.Add(Transient, withContextC)
-	assert.Error(err, "should return an error")
-	err = ls.Add(Singleton, withContextC)
-	assert.Error(err, "should return an error")
+
+	err := ls.Add(Singleton, emptyS)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.Add(Singleton, getServiceWithDependency)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.Add(Singleton, getServiceWithDeepDependencies)
+	suite.NoError(err, "should not return any error")
+
+	var sType service3
+	s, err := ls.Get(nil, &sType)
+
+	suite.NoError(err, "should not return any error")
+	suite.NotNil(s, "should not return non nil service")
 }
 
-func testCanUseSLInsideTransientServices(t *testing.T) {
-	assert := assert.New(t)
+func (suite *serviceCreationSuite) TestGetConstructorWithCircularDependency() {
+	ls := New()
 
-	sl := New()
-	err := sl.Add(Transient, emptyS)
-	assert.NoError(err, "should return no error")
+	err := ls.Add(Singleton, getServiceWithCircularDependency)
+	suite.NoError(err, "should not return any error")
 
-	err = sl.Add(Transient, s2BasedOnS(sl))
-	assert.NoError(err, "should return no error")
+	err = ls.Add(Singleton, getServiceWithDependency)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.Add(Singleton, getServiceWithDeepDependencies)
+	suite.NoError(err, "should not return any error")
+
+	var sType service3
+	s, err := ls.Get(nil, &sType)
+
+	suite.Error(err, "should return an error")
+	suite.Nil(s, "should return nil")
 }
 
-func testCanUseSLInsidePerContextServices(t *testing.T) {
-	assert := assert.New(t)
+func (suite *serviceCreationSuite) TestGetConstructorWithCircularDependencyInsideDependencies() {
+	ls := New()
 
-	sl := New()
-	err := sl.Add(PerContext, emptyS)
-	assert.NoError(err, "should return no error")
+	err := ls.Add(Singleton, emptyS)
+	suite.NoError(err, "should not return any error")
 
-	err = sl.Add(PerContext, s2BasedOnS(sl))
-	assert.NoError(err, "should return no error")
-}
+	err = ls.Add(Singleton, getServiceWithCircularDependencyInsideDependencies)
+	suite.NoError(err, "should not return any error")
 
-func testCanUseSLInsideSingletonServices(t *testing.T) {
-	assert := assert.New(t)
+	err = ls.Add(Singleton, getServiceWithDeepDependencies)
+	suite.NoError(err, "should not return any error")
 
-	sl := New()
-	err := sl.Add(Singleton, emptyS)
-	assert.NoError(err, "should return no error")
+	var sType service3
+	s, err := ls.Get(nil, &sType)
 
-	err = sl.Add(Singleton, s2BasedOnS(sl))
-	assert.NoError(err, "should return no error")
+	suite.Error(err, "should return an error")
+	suite.Nil(s, "should return nil")
 }
