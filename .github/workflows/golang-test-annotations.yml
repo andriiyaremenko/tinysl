@@ -1,0 +1,28 @@
+me: pr
+
+on:
+    pull_request:
+      branches: [ '**' ]
+    workflow_dispatch:
+      branches: [ '**' ]
+
+jobs:
+  full_ci:
+    strategy:
+      matrix:
+        go-version: [ 1.15.x ]
+
+    runs-on: ubuntu-18.04
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+
+      - name: run tests
+        run: go test -json ./... > test.json
+
+      - name: Annotate tests
+        if: always()
+        uses: guyarb/golang-test-annotations@v0.3.0
+        with:
+          test-results: test.json
