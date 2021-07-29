@@ -65,6 +65,11 @@ func getServiceWithCircularDependencyInsideDependencies(service3 service3) (serv
 	return s(base), nil
 }
 
+func getServiceNo4(service3 service3) (service4, error) {
+	base := service3.Call3()
+	return s(base), nil
+}
+
 func getServiceC(counter *int) func() (service, error) {
 	return func() (service, error) {
 		i := *counter + 1

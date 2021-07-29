@@ -344,3 +344,38 @@ func (suite *serviceCreationSuite) TestGetConstructorWithCircularDependencyInsid
 	suite.Error(err, "should return an error")
 	suite.Nil(s, "should return nil")
 }
+
+func (suite *serviceCreationSuite) TestCanResolveDependenciesReturnsErrorOnMissingDependency() {
+	ls := New()
+
+	err := ls.Add(Singleton, emptyS)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.Add(Singleton, getServiceWithDependency)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.Add(Singleton, getServiceNo4)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.CanResolveDependencies()
+	suite.Error(err, "should return an error")
+}
+
+func (suite *serviceCreationSuite) TestCanResolveDependenciesReturnsNoErrorIfAllDependenciesPresent() {
+	ls := New()
+
+	err := ls.Add(Singleton, emptyS)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.Add(Singleton, getServiceWithDependency)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.Add(Singleton, getServiceWithDeepDependencies)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.Add(Singleton, getServiceNo4)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.CanResolveDependencies()
+	suite.NoError(err, "should not return an error")
+}

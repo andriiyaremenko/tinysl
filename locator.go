@@ -47,6 +47,7 @@ type record struct {
 	lifetime     lifetime
 	constructor  interface{}
 	dependencies []string
+	typeName     string
 }
 
 type locator struct {
@@ -127,7 +128,7 @@ func (l *locator) Add(lifetime lifetime, constructor interface{}) error {
 	l.constructorsRWM.RUnlock()
 	l.constructorsRWM.Lock()
 
-	r := record{lifetime: lifetime, constructor: constructor}
+	r := record{lifetime: lifetime, constructor: constructor, typeName: serviceType}
 
 	for i := 0; i < numIn; i++ {
 		argT := t.In(i)
@@ -170,6 +171,26 @@ func (l *locator) Get(ctx context.Context, servicePrt interface{}) (interface{},
 	}
 
 	return l.get(ctx, serviceName, serviceName)
+}
+
+func (l *locator) CanResolveDependencies() error {
+	l.constructorsRWM.RLock()
+	defer l.constructorsRWM.RUnlock()
+
+	serviceNames := make(map[string]struct{})
+	for _, record := range l.constructors {
+		serviceNames[record.typeName] = struct{}{}
+	}
+
+	for _, record := range l.constructors {
+		for _, dependency := range record.dependencies {
+			if _, ok := serviceNames[dependency]; !ok {
+				return errors.Errorf("%s has unregistered dependency %s", record.typeName, dependency)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (l *locator) get(
@@ -239,7 +260,11 @@ func (l *locator) get(
 
 	for i, dep := range record.dependencies {
 		if hasServiceName(dep, initialServiceNames) {
-			return nil, errors.Errorf("circular dependency in %T: depends on %s", constructor, dep)
+			return nil, errors.Errorf(
+				"circular dependency in %T: %s depends on %s",
+				constructor,
+				record.typeName,
+				dep)
 		}
 
 		if i == 0 && dep == contextDepName {
