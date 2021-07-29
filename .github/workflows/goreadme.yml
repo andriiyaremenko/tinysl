@@ -1,8 +1,8 @@
 on:
   push:
-    branches: [*]
+    branches: [master]
   pull_request:
-    branches: [*]
+    branches: [actions/readme]
 jobs:
     goreadme:
         runs-on: ubuntu-latest
