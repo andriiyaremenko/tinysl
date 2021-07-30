@@ -379,3 +379,41 @@ func (suite *serviceCreationSuite) TestCanResolveDependenciesReturnsNoErrorIfAll
 	err = ls.CanResolveDependencies()
 	suite.NoError(err, "should not return an error")
 }
+
+func (suite *serviceCreationSuite) TestCanResolveDependenciesReturnsNoErrorIfOneOfDependenciesIsContext() {
+	ls := New()
+
+	err := ls.Add(PerContext, withContextC)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.Add(PerContext, getServiceWithDependency)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.Add(PerContext, getServiceWithDeepDependencies)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.Add(PerContext, getServiceNo4)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.CanResolveDependencies()
+	suite.NoError(err, "should not return an error")
+}
+
+func (suite *serviceCreationSuite) TestCanResolveDependenciesReturnsErrorIfThereIsCircularDependency() {
+	ls := New()
+
+	err := ls.Add(Singleton, getServiceWithCircularDependency)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.Add(Singleton, getServiceWithDependency)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.Add(Singleton, getServiceWithDeepDependencies)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.Add(Singleton, getServiceNo4)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.CanResolveDependencies()
+	suite.Error(err, "should return an error")
+}
