@@ -177,16 +177,37 @@ func (l *locator) CanResolveDependencies() error {
 	l.constructorsRWM.RLock()
 	defer l.constructorsRWM.RUnlock()
 
-	serviceNames := make(map[string]struct{})
 	for _, record := range l.constructors {
-		serviceNames[record.typeName] = struct{}{}
+		if err := l.canResolveDependencies(record); err != nil {
+			return err
+		}
 	}
 
-	for _, record := range l.constructors {
-		for _, dependency := range record.dependencies {
-			if _, ok := serviceNames[dependency]; !ok {
-				return errors.Errorf("%s has unregistered dependency %s", record.typeName, dependency)
-			}
+	return nil
+}
+
+func (l *locator) canResolveDependencies(record record, dependentServiceNames ...string) error {
+	dependentServiceNames = append(dependentServiceNames, record.typeName)
+	for _, dependency := range record.dependencies {
+		if dependency == contextDepName {
+			continue
+		}
+
+		r, ok := l.constructors[dependency]
+		if !ok {
+			return errors.Errorf("%s has unregistered dependency %s", record.typeName, dependency)
+		}
+
+		if hasServiceName(dependency, dependentServiceNames) {
+			return errors.Errorf(
+				"circular dependency in %T: %s depends on %s",
+				record.constructor,
+				record.typeName,
+				dependency)
+		}
+
+		if err := l.canResolveDependencies(r, dependentServiceNames...); err != nil {
+			return err
 		}
 	}
 
