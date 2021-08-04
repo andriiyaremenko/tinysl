@@ -107,7 +107,7 @@ func (l *locator) Add(lifetime lifetime, constructor interface{}) error {
 
 	numIn := t.NumIn()
 
-	// Singleton cannot not be based on any context, but PerContext and Transient can
+	// Singleton cannot be based on any context, but PerContext and Transient can
 	if lifetime == Singleton &&
 		numIn > 0 &&
 		t.In(0).Implements(contextInterface) {

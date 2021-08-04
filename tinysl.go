@@ -29,6 +29,6 @@ type ServiceLocator interface {
 	// ctx is used for PerContext scoped services in other cases can be nil.
 	// servicePrt should be pointer to a T, where T is type of service to be constructed.
 	Get(ctx context.Context, servicePtr interface{}) (service interface{}, err error)
-	// Checks if all dependencies for every registered service were registered.
+	// Checks if all dependencies for each registered service were met.
 	CanResolveDependencies() error
 }

@@ -45,7 +45,7 @@
 // 	})
 //
 //	if err := sl.CanResolveDependencies(); err != nil {
-//		// process missing dependency error
+//		// handle missing dependency error
 //	}
 //
 // 	func MyRequestHandler(w http.ResponseWriter, req *http.Request) {
@@ -53,7 +53,7 @@
 //
 // 		service, err := sl.Get(req.Context(), &myService)
 // 		if err != nil {
-// 			// process error
+// 			// handle error
 // 		}
 //
 // 		myService = service.(MyService)
