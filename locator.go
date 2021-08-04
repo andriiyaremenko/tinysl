@@ -12,9 +12,17 @@ import (
 const (
 	contextDepName = "context.Context"
 
-	templateVariadicConstructorErr  string = "variadic function as constructor is not supported: got %s"
-	templateConstructorErr          string = "constructor should be of type %s for %s, got %s"
-	templateDuplicateConstructorErr string = "ServiceLocator has already registered constructor for %s: %T"
+	templateConstructor                  string = "constructor should be of type %s for %s, got %s"
+	templateConstructorNotFound          string = "constructor for %s not found"
+	templateConstructorReturnedError     string = "constructor %T returned an error"
+	templateConstructorReturnedBadResult string = "constructor %T returned an unexpected result: %v"
+	templateVariadicConstructor          string = "variadic function as constructor is not supported: got %s"
+	templateDuplicateConstructor         string = "ServiceLocator has already registered constructor for %s: %T"
+	templateNotAPointer                  string = "service type should be pointer type, got: %s"
+	templateMissingDependency            string = "%s has unregistered dependency: %s"
+	templateCircularDependency           string = "circular dependency in %T: %s depends on %s"
+	templatePerContextNilContext         string = "PerContext service %s cannot be served for nil context"
+	templatePerContextCancelledContext   string = "PerContext service %s cannot be served for cancelled context"
 
 	constructorTypeStr            string = "func(T1, T2, ...) (T, error)"
 	constructorWithContextTypeStr string = "func(context.Context, T1, T2, ...) (T, error)"
@@ -71,19 +79,19 @@ func (l *locator) Add(lifetime lifetime, constructor interface{}) error {
 	switch lifetime {
 	case Singleton:
 		errAddText = fmt.Sprintf(
-			templateConstructorErr,
+			templateConstructor,
 			singletonPossibleConstructor,
 			lifetimeLookup[lifetime],
 			t)
 	case PerContext:
 		errAddText = fmt.Sprintf(
-			templateConstructorErr,
+			templateConstructor,
 			perContextPossibleConstructor,
 			lifetimeLookup[lifetime],
 			t)
 	case Transient:
 		errAddText = fmt.Sprintf(
-			templateConstructorErr,
+			templateConstructor,
 			transientPossibleConstructor,
 			lifetimeLookup[lifetime],
 			t)
@@ -94,7 +102,7 @@ func (l *locator) Add(lifetime lifetime, constructor interface{}) error {
 	}
 
 	if t.IsVariadic() {
-		return errors.Errorf(templateVariadicConstructorErr, t)
+		return errors.Errorf(templateVariadicConstructor, t)
 	}
 
 	numIn := t.NumIn()
@@ -122,7 +130,7 @@ func (l *locator) Add(lifetime lifetime, constructor interface{}) error {
 	if v, ok := l.constructors[serviceType]; ok {
 		l.constructorsRWM.RUnlock()
 
-		return errors.Errorf(templateDuplicateConstructorErr, serviceType, v)
+		return errors.Errorf(templateDuplicateConstructor, serviceType, v)
 	}
 
 	l.constructorsRWM.RUnlock()
@@ -161,13 +169,13 @@ func (l *locator) Add(lifetime lifetime, constructor interface{}) error {
 func (l *locator) Get(ctx context.Context, servicePrt interface{}) (interface{}, error) {
 	serviceType := reflect.TypeOf(servicePrt)
 	if serviceType.Kind() != reflect.Ptr {
-		return nil, errors.Errorf("service type should be pointer type, got: %s", serviceType)
+		return nil, errors.Errorf(templateNotAPointer, serviceType)
 	}
 
 	serviceName := serviceType.Elem().String()
 
 	if l.constructors == nil {
-		return nil, errors.Errorf("constructor for %s not found", serviceName)
+		return nil, errors.Errorf(templateConstructorNotFound, serviceName)
 	}
 
 	return l.get(ctx, serviceName, serviceName)
@@ -178,7 +186,7 @@ func (l *locator) CanResolveDependencies() error {
 	defer l.constructorsRWM.RUnlock()
 
 	for _, record := range l.constructors {
-		if err := l.canResolveDependencies(record); err != nil {
+		if err := l.canResolveDependencies(record, record.typeName); err != nil {
 			return err
 		}
 	}
@@ -186,8 +194,7 @@ func (l *locator) CanResolveDependencies() error {
 	return nil
 }
 
-func (l *locator) canResolveDependencies(record record, dependentServiceNames ...string) error {
-	dependentServiceNames = append(dependentServiceNames, record.typeName)
+func (l *locator) canResolveDependencies(record record, initialServiceName string) error {
 	for _, dependency := range record.dependencies {
 		if dependency == contextDepName {
 			continue
@@ -195,18 +202,22 @@ func (l *locator) canResolveDependencies(record record, dependentServiceNames ..
 
 		r, ok := l.constructors[dependency]
 		if !ok {
-			return errors.Errorf("%s has unregistered dependency %s", record.typeName, dependency)
+			return errors.Errorf(
+				templateMissingDependency,
+				record.typeName,
+				fmt.Sprintf(templateConstructorNotFound, dependency),
+			)
 		}
 
-		if hasServiceName(dependency, dependentServiceNames) {
+		if dependency == initialServiceName {
 			return errors.Errorf(
-				"circular dependency in %T: %s depends on %s",
+				templateCircularDependency,
 				record.constructor,
 				record.typeName,
 				dependency)
 		}
 
-		if err := l.canResolveDependencies(r, dependentServiceNames...); err != nil {
+		if err := l.canResolveDependencies(r, initialServiceName); err != nil {
 			return err
 		}
 	}
@@ -226,7 +237,7 @@ func (l *locator) get(
 	l.constructorsRWM.RUnlock()
 
 	if !ok {
-		return nil, errors.Errorf("constructor for %s not found", serviceName)
+		return nil, errors.Errorf(templateConstructorNotFound, serviceName)
 	}
 
 	switch record.lifetime {
@@ -246,11 +257,11 @@ func (l *locator) get(
 
 	if record.lifetime == PerContext {
 		if ctx == nil {
-			return nil, errors.Errorf("PerContext service %s cannot be served for nil context", serviceName)
+			return nil, errors.Errorf(templatePerContextNilContext, serviceName)
 		}
 
 		if err := ctx.Err(); err != nil {
-			return nil, errors.Wrapf(err, "PerContext service %s cannot be served for cancelled context", serviceName)
+			return nil, errors.Wrapf(err, templatePerContextCancelledContext, serviceName)
 		}
 
 		l.perContextM.Lock()
@@ -282,7 +293,7 @@ func (l *locator) get(
 	for i, dep := range record.dependencies {
 		if hasServiceName(dep, initialServiceNames) {
 			return nil, errors.Errorf(
-				"circular dependency in %T: %s depends on %s",
+				templateCircularDependency,
 				constructor,
 				record.typeName,
 				dep)
@@ -297,7 +308,7 @@ func (l *locator) get(
 		service, err := l.get(ctx, dep, initialServiceNames...)
 
 		if err != nil {
-			return nil, errors.Wrapf(err, "constructor %T returned an error", constructor)
+			return nil, err
 		}
 
 		args = append(args, reflect.ValueOf(service))
@@ -306,12 +317,12 @@ func (l *locator) get(
 	values := fn.Call(args)
 
 	if len(values) != 2 {
-		return nil, errors.Errorf("constructor %T returned an unexpected result: %v", constructor, values)
+		return nil, errors.Errorf(templateConstructorReturnedBadResult, constructor, values)
 	}
 
 	serviceV, errV := values[0], values[1]
 	if err, ok := (errV.Interface()).(error); ok && err != nil {
-		return nil, errors.Wrapf(err, "constructor %T returned an error", constructor)
+		return nil, errors.Wrapf(err, templateConstructorReturnedError, constructor)
 	}
 
 	service := serviceV.Interface()
