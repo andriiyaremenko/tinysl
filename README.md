@@ -20,11 +20,25 @@ How to use:
 ```go
 type MyService interface {
 	SayHello() string
+	Name() string
+}
+
+type YourService interface {
+	ReplyHello() string
 }
 
 type myservice string
 func (ms myservice) SayHello() string {
-	return "Hello from " + myservice
+	return "Hello from " + string(myservice)
+}
+
+func (ms myservice) Name() string {
+	return string(myservice)
+}
+
+type yourservice string
+func (ms yourservice) ReplyHello() string {
+	return "Hello to you too dear " + yourservice
 }
 
 sl := tinysl.New()
@@ -34,12 +48,21 @@ sl.Add(tinysl.PerContext, func(ctx context.Context) (MyService, error){
 	return myservice("SomeService"), nil
 })
 
+sl.Add(tinysl.PerContext, func(ctx context.Context, myService MyService) (YourService, error){
+	// get your service instance
+	return yourservice(myService.Name()), nil
+})
+
+if err := sl.CanResolveDependencies(); err != nil {
+	// handle missing dependency error
+}
+
 func MyRequestHandler(w http.ResponseWriter, req *http.Request) {
 	var myService MyService
 
 	service, err := sl.Get(req.Context(), &myService)
 	if err != nil {
-		// process error
+		// handle error
 	}
 
 	myService = service.(MyService)
@@ -58,8 +81,8 @@ tinysl.Transient
 Constructor types that can be used:
 
 ```go
-func() (T, error)                // for PerContext, Transient and Singleton
-func(context.Context) (T, error) // for PerContext only
+func(T1, T2, ...) (T, error)                // for PerContext, Transient and Singleton
+func(context.Context, T1, T2, ...) (T, error) // for PerContext and Transient only
 ```
 
 ---
