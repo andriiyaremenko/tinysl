@@ -186,7 +186,7 @@ func (l *locator) CanResolveDependencies() error {
 	defer l.constructorsRWM.RUnlock()
 
 	for _, record := range l.constructors {
-		if err := l.canResolveDependencies(record, record.typeName); err != nil {
+		if err := l.canResolveDependencies(record); err != nil {
 			return err
 		}
 	}
@@ -194,7 +194,8 @@ func (l *locator) CanResolveDependencies() error {
 	return nil
 }
 
-func (l *locator) canResolveDependencies(record record, initialServiceName string) error {
+func (l *locator) canResolveDependencies(record record, dependentServiceNames ...string) error {
+	dependentServiceNames = append(dependentServiceNames, record.typeName)
 	for _, dependency := range record.dependencies {
 		if dependency == contextDepName {
 			continue
@@ -209,7 +210,7 @@ func (l *locator) canResolveDependencies(record record, initialServiceName strin
 			)
 		}
 
-		if dependency == initialServiceName {
+		if hasServiceName(dependency, dependentServiceNames) {
 			return errors.Errorf(
 				templateCircularDependency,
 				record.constructor,
@@ -217,7 +218,7 @@ func (l *locator) canResolveDependencies(record record, initialServiceName strin
 				dependency)
 		}
 
-		if err := l.canResolveDependencies(r, initialServiceName); err != nil {
+		if err := l.canResolveDependencies(r, dependentServiceNames...); err != nil {
 			return err
 		}
 	}
