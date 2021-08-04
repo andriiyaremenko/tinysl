@@ -13,6 +13,14 @@ type service2 interface {
 	Call2() string
 }
 
+type service3 interface {
+	Call3() string
+}
+
+type service4 interface {
+	Call4() string
+}
+
 type s string
 
 func (t s) Call() string {
@@ -21,6 +29,45 @@ func (t s) Call() string {
 
 func (t s) Call2() string {
 	return string(t) + "_2"
+}
+
+func (t s) Call3() string {
+	return string(t) + "_3"
+}
+
+func (t s) Call4() string {
+	return string(t) + "_4"
+}
+
+func getServiceWithDependency(service service) (service2, error) {
+	base := service.Call()
+	return s(base), nil
+}
+
+func getServiceWith2Dependencies(service service, service2 service2) (service3, error) {
+	begin := service.Call()
+	end := service2.Call2()
+	return s(begin + end), nil
+}
+
+func getServiceWithDeepDependencies(service2 service2) (service3, error) {
+	base := service2.Call2()
+	return s(base), nil
+}
+
+func getServiceWithCircularDependency(service3 service3) (service, error) {
+	base := service3.Call3()
+	return s(base), nil
+}
+
+func getServiceWithCircularDependencyInsideDependencies(service3 service3) (service2, error) {
+	base := service3.Call3()
+	return s(base), nil
+}
+
+func getServiceNo4(service3 service3) (service4, error) {
+	base := service3.Call3()
+	return s(base), nil
 }
 
 func getServiceC(counter *int) func() (service, error) {
