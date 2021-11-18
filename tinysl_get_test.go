@@ -287,3 +287,39 @@ func (suite *serviceCreationSuite) TestCanResolveDependenciesReturnsErrorIfThere
 	err = ls.CanResolveDependencies()
 	suite.Error(err, "should return an error")
 }
+
+func (suite *serviceCreationSuite) TestConcurrentGetConstructorWithDependencies() {
+	ls := New()
+
+	err := ls.Add(PerContext, emptyS)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.Add(PerContext, getServiceWithDependency)
+	suite.NoError(err, "should not return any error")
+
+	err = ls.Add(PerContext, getServiceWithDeepDependencies)
+	suite.NoError(err, "should not return any error")
+
+	ctx := context.TODO()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			ctx, cancel := context.WithCancel(ctx)
+
+			defer cancel()
+
+			var sType service3
+			s, err := ls.Get(ctx, &sType)
+
+			suite.NoError(err, "should not return any error")
+			suite.NotNil(s, "should not return non nil service")
+		}()
+	}
+
+	wg.Wait()
+}
