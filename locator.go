@@ -43,11 +43,8 @@ var lifetimeLookup = map[lifetime]string{
 // returns new ServiceLocator.
 func New() ServiceLocator {
 	return &locator{
-		singletonsMs: make(map[string]*sync.Mutex),
-		perContextMs: make(map[string]*sync.Mutex),
-
-		singletons:   make(map[string]interface{}),
-		perContext:   make(map[context.Context]map[string]interface{}),
+		singletons:   newInstances(),
+		perContext:   newContextInstances(),
 		constructors: make(map[string]record)}
 }
 
@@ -59,13 +56,10 @@ type record struct {
 }
 
 type locator struct {
-	singletonsMs    map[string]*sync.Mutex
-	perContextMs    map[string]*sync.Mutex
-	perContextM     sync.Mutex
 	constructorsRWM sync.RWMutex
 
-	singletons   map[string]interface{}
-	perContext   map[context.Context]map[string]interface{}
+	singletons   *instances
+	perContext   *contextInstances
 	constructors map[string]record
 }
 
@@ -154,13 +148,6 @@ func (l *locator) Add(lifetime lifetime, constructor interface{}) error {
 
 	l.constructors[serviceType] = r
 
-	switch lifetime {
-	case Singleton:
-		l.singletonsMs[serviceType] = new(sync.Mutex)
-	case PerContext:
-		l.perContextMs[serviceType] = new(sync.Mutex)
-	}
-
 	l.constructorsRWM.Unlock()
 
 	return nil
@@ -241,17 +228,8 @@ func (l *locator) get(
 		return nil, errors.Errorf(templateConstructorNotFound, serviceName)
 	}
 
-	switch record.lifetime {
-	case PerContext:
-		l.perContextMs[serviceName].Lock()
-		defer l.perContextMs[serviceName].Unlock()
-	case Singleton:
-		l.singletonsMs[serviceName].Lock()
-		defer l.singletonsMs[serviceName].Unlock()
-	}
-
 	if record.lifetime == Singleton {
-		if service, ok := l.singletons[serviceName]; ok {
+		if service, ok := l.singletons.get(serviceName); ok {
 			return service, nil
 		}
 	}
@@ -265,26 +243,9 @@ func (l *locator) get(
 			return nil, errors.Wrapf(err, templatePerContextCancelledContext, serviceName)
 		}
 
-		l.perContextM.Lock()
-		if l.perContext[ctx] == nil {
-			l.perContext[ctx] = make(map[string]interface{})
-
-			go func() {
-				<-ctx.Done()
-
-				l.perContextM.Lock()
-				delete(l.perContext, ctx)
-				l.perContextM.Unlock()
-			}()
-		}
-
-		if service, ok := l.perContext[ctx][serviceName]; ok {
-			l.perContextM.Unlock()
-
+		if service, ok := l.perContext.get(ctx, serviceName); ok {
 			return service, nil
 		}
-
-		l.perContextM.Unlock()
 	}
 
 	constructor := record.constructor
@@ -330,9 +291,9 @@ func (l *locator) get(
 
 	switch record.lifetime {
 	case Singleton:
-		l.singletons[serviceName] = service
+		l.singletons.set(serviceName, service)
 	case PerContext:
-		l.perContext[ctx][serviceName] = service
+		l.perContext.set(ctx, serviceName, service)
 	}
 
 	return service, nil

@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v2
 
       - name: run tests
-        run: go test -json ./... > test.json
+        run: go test -count=500 -failfast -race -json ./... > test.json
 
       - name: Annotate tests
         if: always()
