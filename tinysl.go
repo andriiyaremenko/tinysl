@@ -2,33 +2,63 @@ package tinysl
 
 import (
 	"context"
+	"reflect"
 )
 
-type lifetime int
-
-const (
+var (
 	// For Transient service new instance is returned.
-	Transient lifetime = iota
+	Transient Lifetime = "Transient"
 	// For PerContext service same instance is returned for same context.Context.
-	PerContext
+	PerContext Lifetime = "PerContext"
 	// For Singleton service same instance is returned always.
-	Singleton
+	Singleton Lifetime = "Singleton"
 )
 
-// Helps manage lifetime scope of services.
-// This interface is sealed.
+type Lifetime string
+
+// ServiceLocator allows fetching service using its type name.
 type ServiceLocator interface {
-	sealed()
+	// Returns service instance associated with service type name.
+	Get(ctx context.Context, serviceName string) (any, error)
+	// Returns error associated with ServiceLocator initialisation (if such occurred).
+	Err() error
+}
+
+// Container keeps services constructors and lifetime scopes.
+type Container interface {
 	// Adds constructor of service with lifetime scope.
-	// For Transient and Singleton constructor should be of type func() (T, error),
-	// for PerContext constructor should be of type func ()|(context.Context) (T, error),
+	// For Singleton constructor should be of type func(T1, T2, ...) (T, error),
+	// for Transient and PerContext constructor should be of type func(context.Context, T1, T2, ...),
 	// where T is exact type of service.
-	Add(lifetime lifetime, constructor interface{}) error
-	// Returns service in from of interface{}.
-	// Should be upcased to service type to use.
-	// ctx is used for PerContext scoped services in other cases can be nil.
-	// servicePrt should be pointer to a T, where T is type of service to be constructed.
-	Get(ctx context.Context, servicePtr interface{}) (service interface{}, err error)
-	// Checks if all dependencies for each registered service were met.
-	CanResolveDependencies() error
+	Add(lifetime Lifetime, constructor any) Container
+	// Returns ServiceLocator or error.
+	ServiceLocator() (sl ServiceLocator, err error)
+}
+
+// Returns new Container.
+func New() Container {
+	return newContainer()
+}
+
+// Creates new Container, adds constructor and returns newly-created container.
+func Add(lifetime Lifetime, constructor any) Container {
+	return New().Add(lifetime, constructor)
+}
+
+// Returns service registered in ServiceLocator, or error if such occurred.
+func Get[T any](ctx context.Context, sl ServiceLocator) (T, error) {
+	var nilValue T
+	serviceType := reflect.TypeOf(new(T))
+	serviceName := serviceType.Elem().String()
+
+	if err := sl.Err(); err != nil {
+		return nilValue, err
+	}
+
+	s, err := sl.Get(ctx, serviceName)
+	if err != nil {
+		return nilValue, err
+	}
+
+	return s.(T), nil
 }

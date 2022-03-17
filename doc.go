@@ -32,32 +32,27 @@
 // 		return "Hello to you too dear " + yourservice
 // 	}
 //
-// 	sl := tinysl.New()
-//
-// 	sl.Add(tinysl.PerContext, func(ctx context.Context) (MyService, error){
-// 		// get your service instance
-// 		return myservice("SomeService"), nil
-// 	})
-//
-// 	sl.Add(tinysl.PerContext, func(ctx context.Context, myService MyService) (YourService, error){
-// 		// get your service instance
-// 		return yourservice(myService.Name()), nil
-// 	})
-//
-//	if err := sl.CanResolveDependencies(); err != nil {
-//		// handle missing dependency error
+// 	sl, err := tinysl.
+// 		Add(tinysl.PerContext, func(ctx context.Context) (MyService, error){
+// 			// get your service instance
+// 			return myservice("SomeService"), nil
+// 		}).
+// 		Add(tinysl.PerContext, func(ctx context.Context, myService MyService) (YourService, error){
+// 			// get your service instance
+// 			return yourservice(myService.Name()), nil
+// 		}).
+//		ServiceLocator()
+//	if err != nil {
+//		// handle error
 //	}
 //
 // 	func MyRequestHandler(w http.ResponseWriter, req *http.Request) {
-// 		var myService MyService
-//
-// 		service, err := sl.Get(req.Context(), &myService)
+// 		service, err := tinysl.Get[YourService](req.Context(), sl)
 // 		if err != nil {
 // 			// handle error
 // 		}
 //
-// 		myService = service.(MyService)
-// 		// use myService
+// 		// use service
 // 	}
 //
 // Lifetime constants:

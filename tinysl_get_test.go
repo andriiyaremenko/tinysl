@@ -1,9 +1,10 @@
-package tinysl
+package tinysl_test
 
 import (
 	"context"
 	"sync"
 
+	"github.com/andriiyaremenko/tinysl"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -12,66 +13,60 @@ type serviceCreationSuite struct {
 }
 
 func (suite *serviceCreationSuite) TestGetNewTransientInstance() {
-	ls := New()
+	c := tinysl.New()
 	i := 0
-	err := ls.Add(Transient, getServiceC(&i))
+	sl, err := c.Add(tinysl.Transient, getServiceC(&i)).ServiceLocator()
 
 	suite.NoError(err, "should not return any error")
 
-	var sType service
-	s1, err := ls.Get(nil, &sType)
+	s1, err := tinysl.Get[service](context.TODO(), sl)
 
 	suite.NoError(err, "should not return any error")
-	suite.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
+	suite.Equal("1 attempt", s1.Call(), "method should be invoked successfully")
 
-	s2, err := ls.Get(nil, &sType)
+	s2, err := tinysl.Get[service](context.TODO(), sl)
 
 	suite.NoError(err, "should not return any error")
-	suite.Equal("2 attempt", s2.(service).Call(), "method should be invoked successfully")
+	suite.Equal("2 attempt", s2.Call(), "method should be invoked successfully")
 	suite.Equal(2, i, "constructor func should have been called twice")
 	suite.NotEqual(s1, s2, "transient services should not be equal")
 }
 
 func (suite *serviceCreationSuite) TestGetPerContextInstanceWithSameContext() {
-	ls := New()
 	i := 0
-	err := ls.Add(PerContext, getServiceC(&i))
+	sl, err := tinysl.Add(tinysl.PerContext, getServiceC(&i)).ServiceLocator()
 
 	suite.NoError(err, "should not return any error")
 
 	ctx := context.TODO()
-	var sType service
-
-	s1, err := ls.Get(ctx, &sType)
+	s1, err := tinysl.Get[service](ctx, sl)
 
 	suite.NoError(err, "should not return any error")
-	suite.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
+	suite.Equal("1 attempt", s1.Call(), "method should be invoked successfully")
 
-	s2, err := ls.Get(ctx, &sType)
+	s2, err := tinysl.Get[service](ctx, sl)
 
 	suite.NoError(err, "should not return any error")
-	suite.Equal("1 attempt", s2.(service).Call(), "method should be invoked successfully")
+	suite.Equal("1 attempt", s2.Call(), "method should be invoked successfully")
 	suite.Equal(1, i, "constructor func should have been called once")
 	suite.Equal(s1, s2, "PerContext services should be equal for same Context")
 }
 
 func (suite *serviceCreationSuite) TestGetPerContextInstanceWithDifferentContext() {
-	ls := New()
 	i := 0
-	err := ls.Add(PerContext, getServiceC(&i))
+	sl, err := tinysl.Add(tinysl.PerContext, getServiceC(&i)).ServiceLocator()
 
 	suite.NoError(err, "should not return any error")
 
 	ctx1 := context.TODO()
 	ctx2 := context.Background()
 
-	var sType service
-	s1, err := ls.Get(ctx1, &sType)
+	s1, err := tinysl.Get[service](ctx1, sl)
 
 	suite.NoError(err, "should not return any error")
-	suite.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
+	suite.Equal("1 attempt", s1.Call(), "method should be invoked successfully")
 
-	s2, err := ls.Get(ctx2, &sType)
+	s2, err := tinysl.Get[service](ctx2, sl)
 
 	suite.NoError(err, "should not return any error")
 	suite.Equal("2 attempt", s2.(service).Call(), "method should be invoked successfully")
@@ -80,22 +75,20 @@ func (suite *serviceCreationSuite) TestGetPerContextInstanceWithDifferentContext
 }
 
 func (suite *serviceCreationSuite) TestGetPerContextWithCancelledContext() {
-	ls := New()
 	i := 0
-	err := ls.Add(PerContext, getServiceC(&i))
+	sl, err := tinysl.Add(tinysl.PerContext, getServiceC(&i)).ServiceLocator()
 
 	suite.NoError(err, "should not return any error")
 
-	var sType service
 	ctx := context.TODO()
 	ctx, cancel := context.WithCancel(ctx)
-	s, err := ls.Get(ctx, &sType)
+	s, err := tinysl.Get[service](ctx, sl)
 
 	suite.NoError(err, "should not return any error")
-	suite.Equal("1 attempt", s.(service).Call(), "method should be invoked successfully")
+	suite.Equal("1 attempt", s.Call(), "method should be invoked successfully")
 	cancel()
 
-	s, err = ls.Get(ctx, &sType)
+	s, err = tinysl.Get[service](ctx, sl)
 
 	suite.Nil(s, "should be nil")
 	suite.Error(err, "should return an error")
@@ -103,201 +96,116 @@ func (suite *serviceCreationSuite) TestGetPerContextWithCancelledContext() {
 }
 
 func (suite *serviceCreationSuite) TestGetSingletonReturnsAlwaysSameInstance() {
-	ls := New()
 	i := 0
-	err := ls.Add(Singleton, getServiceC(&i))
+	sl, err := tinysl.Add(tinysl.Singleton, getServiceC(&i)).ServiceLocator()
 
 	suite.NoError(err, "should not return any error")
 
-	var sType service
-	s1, err := ls.Get(nil, &sType)
+	s1, err := tinysl.Get[service](context.TODO(), sl)
 
 	suite.NoError(err, "should not return any error")
-	suite.Equal("1 attempt", s1.(service).Call(), "method should be invoked successfully")
+	suite.Equal("1 attempt", s1.Call(), "method should be invoked successfully")
 
-	s2, err := ls.Get(nil, &sType)
+	s2, err := tinysl.Get[service](context.TODO(), sl)
 
 	suite.NoError(err, "should not return any error")
-	suite.Equal("1 attempt", s2.(service).Call(), "method should be invoked successfully")
+	suite.Equal("1 attempt", s2.Call(), "method should be invoked successfully")
 	suite.Equal(1, i, "constructor func should have been called once")
 	suite.Equal(s1, s2, "singleton services should be equal")
 }
 
 func (suite *serviceCreationSuite) TestGetConstructorWithDependencies() {
-	ls := New()
+	sl, err := tinysl.
+		Add(tinysl.Singleton, emptyS).
+		Add(tinysl.Singleton, getServiceWithDependency).
+		ServiceLocator()
 
-	err := ls.Add(Singleton, emptyS)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.Add(Singleton, getServiceWithDependency)
-	suite.NoError(err, "should not return any error")
-
-	var sType service2
-	s, err := ls.Get(nil, &sType)
+	s, err := tinysl.Get[service2](context.TODO(), sl)
 
 	suite.NoError(err, "should not return any error")
 	suite.NotNil(s, "should return non nil service")
 }
 
 func (suite *serviceCreationSuite) TestGetConstructorWith2Dependencies() {
-	ls := New()
+	sl, err := tinysl.
+		Add(tinysl.Singleton, emptyS).
+		Add(tinysl.Singleton, getServiceWithDependency).
+		Add(tinysl.Singleton, getServiceWith2Dependencies).
+		ServiceLocator()
 
-	err := ls.Add(Singleton, emptyS)
 	suite.NoError(err, "should not return any error")
 
-	err = ls.Add(Singleton, getServiceWithDependency)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.Add(Singleton, getServiceWith2Dependencies)
-	suite.NoError(err, "should not return any error")
-
-	var sType service3
-	s, err := ls.Get(nil, &sType)
+	s, err := tinysl.Get[service3](context.TODO(), sl)
 
 	suite.NoError(err, "should not return any error")
 	suite.NotNil(s, "should not return non nil service")
 }
 
 func (suite *serviceCreationSuite) TestGetConstructorWithDeepDependency() {
-	ls := New()
+	sl, err := tinysl.
+		Add(tinysl.Singleton, emptyS).
+		Add(tinysl.Singleton, getServiceWithDependency).
+		Add(tinysl.Singleton, getServiceWithDeepDependencies).
+		ServiceLocator()
 
-	err := ls.Add(Singleton, emptyS)
 	suite.NoError(err, "should not return any error")
 
-	err = ls.Add(Singleton, getServiceWithDependency)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.Add(Singleton, getServiceWithDeepDependencies)
-	suite.NoError(err, "should not return any error")
-
-	var sType service3
-	s, err := ls.Get(nil, &sType)
+	s, err := tinysl.Get[service3](nil, sl)
 
 	suite.NoError(err, "should not return any error")
 	suite.NotNil(s, "should not return non nil service")
 }
 
 func (suite *serviceCreationSuite) TestGetConstructorWithCircularDependency() {
-	ls := New()
-
-	err := ls.Add(Singleton, getServiceWithCircularDependency)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.Add(Singleton, getServiceWithDependency)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.Add(Singleton, getServiceWithDeepDependencies)
-	suite.NoError(err, "should not return any error")
-
-	var sType service3
-	s, err := ls.Get(nil, &sType)
+	_, err := tinysl.
+		Add(tinysl.Singleton, getServiceWithCircularDependency).
+		Add(tinysl.Singleton, getServiceWithDependency).
+		Add(tinysl.Singleton, getServiceWithDeepDependencies).
+		ServiceLocator()
 
 	suite.Error(err, "should return an error")
-	suite.Nil(s, "should return nil")
 }
 
 func (suite *serviceCreationSuite) TestGetConstructorWithCircularDependencyInsideDependencies() {
-	ls := New()
-
-	err := ls.Add(Singleton, emptyS)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.Add(Singleton, getServiceWithCircularDependencyInsideDependencies)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.Add(Singleton, getServiceWithDeepDependencies)
-	suite.NoError(err, "should not return any error")
-
-	var sType service3
-	s, err := ls.Get(nil, &sType)
+	_, err := tinysl.
+		Add(tinysl.Singleton, emptyS).
+		Add(tinysl.Singleton, getServiceWithCircularDependencyInsideDependencies).
+		Add(tinysl.Singleton, getServiceWithDeepDependencies).
+		ServiceLocator()
 
 	suite.Error(err, "should return an error")
-	suite.Nil(s, "should return nil")
 }
 
 func (suite *serviceCreationSuite) TestCanResolveDependenciesReturnsErrorOnMissingDependency() {
-	ls := New()
+	_, err := tinysl.
+		Add(tinysl.Singleton, emptyS).
+		Add(tinysl.Singleton, getServiceWithDependency).
+		Add(tinysl.Singleton, getServiceNo4).
+		ServiceLocator()
 
-	err := ls.Add(Singleton, emptyS)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.Add(Singleton, getServiceWithDependency)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.Add(Singleton, getServiceNo4)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.CanResolveDependencies()
 	suite.Error(err, "should return an error")
-}
-
-func (suite *serviceCreationSuite) TestCanResolveDependenciesReturnsNoErrorIfAllDependenciesPresent() {
-	ls := New()
-
-	err := ls.Add(Singleton, emptyS)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.Add(Singleton, getServiceWithDependency)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.Add(Singleton, getServiceWithDeepDependencies)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.Add(Singleton, getServiceNo4)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.CanResolveDependencies()
-	suite.NoError(err, "should not return an error")
 }
 
 func (suite *serviceCreationSuite) TestCanResolveDependenciesReturnsNoErrorIfOneOfDependenciesIsContext() {
-	ls := New()
+	_, err := tinysl.
+		Add(tinysl.PerContext, withContextC).
+		Add(tinysl.PerContext, getServiceWithDependency).
+		Add(tinysl.PerContext, getServiceWithDeepDependencies).
+		Add(tinysl.PerContext, getServiceNo4).
+		ServiceLocator()
 
-	err := ls.Add(PerContext, withContextC)
 	suite.NoError(err, "should not return any error")
 
-	err = ls.Add(PerContext, getServiceWithDependency)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.Add(PerContext, getServiceWithDeepDependencies)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.Add(PerContext, getServiceNo4)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.CanResolveDependencies()
-	suite.NoError(err, "should not return an error")
-}
-
-func (suite *serviceCreationSuite) TestCanResolveDependenciesReturnsErrorIfThereIsCircularDependency() {
-	ls := New()
-
-	err := ls.Add(Singleton, getServiceWithCircularDependency)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.Add(Singleton, getServiceWithDependency)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.Add(Singleton, getServiceWithDeepDependencies)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.Add(Singleton, getServiceNo4)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.CanResolveDependencies()
-	suite.Error(err, "should return an error")
 }
 
 func (suite *serviceCreationSuite) TestConcurrentGetConstructorWithDependencies() {
-	ls := New()
+	c := tinysl.New()
 
-	err := ls.Add(PerContext, emptyS)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.Add(PerContext, getServiceWithDependency)
-	suite.NoError(err, "should not return any error")
-
-	err = ls.Add(PerContext, getServiceWithDeepDependencies)
+	sl, err := c.
+		Add(tinysl.PerContext, emptyS).
+		Add(tinysl.PerContext, getServiceWithDependency).
+		Add(tinysl.PerContext, getServiceWithDeepDependencies).
+		ServiceLocator()
 	suite.NoError(err, "should not return any error")
 
 	ctx := context.TODO()
@@ -313,8 +221,7 @@ func (suite *serviceCreationSuite) TestConcurrentGetConstructorWithDependencies(
 
 			defer cancel()
 
-			var sType service3
-			s, err := ls.Get(ctx, &sType)
+			s, err := tinysl.Get[service3](ctx, sl)
 
 			suite.NoError(err, "should not return any error")
 			suite.NotNil(s, "should not return non nil service")

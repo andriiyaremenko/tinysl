@@ -1,4 +1,4 @@
-package tinysl
+package tinysl_test
 
 import (
 	"testing"
