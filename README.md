@@ -10,51 +10,51 @@ Its purpose is to help share instances of services among goroutines within conte
 
 ### How to use:
 ```go
-	type MyService interface {
-		SayHello() string
-		Name() string
-	}
+type MyService interface {
+	SayHello() string
+	Name() string
+}
 
-	type YourService interface {
-		ReplyHello() string
-	}
+type YourService interface {
+	ReplyHello() string
+}
 
-	type myservice string
-	func (ms myservice) SayHello() string {
-		return "Hello from " + string(myservice)
-	}
+type myservice string
+func (ms myservice) SayHello() string {
+	return "Hello from " + string(myservice)
+}
 
-	func (ms myservice) Name() string {
-		return string(myservice)
-	}
+func (ms myservice) Name() string {
+	return string(myservice)
+}
 
-	type yourservice string
-	func (ms yourservice) ReplyHello() string {
-		return "Hello to you too dear " + yourservice
-	}
+type yourservice string
+func (ms yourservice) ReplyHello() string {
+	return "Hello to you too dear " + yourservice
+}
 
-	sl, err := tinysl.
-		Add(tinysl.PerContext, func(ctx context.Context) (MyService, error){
-			// get your service instance
-			return myservice("SomeService"), nil
-		}).
-		Add(tinysl.PerContext, func(ctx context.Context, myService MyService) (YourService, error){
-			// get your service instance
-			return yourservice(myService.Name()), nil
-		}).
+sl, err := tinysl.
+	Add(tinysl.PerContext, func(ctx context.Context) (MyService, error){
+		// get your service instance
+		return myservice("SomeService"), nil
+	}).
+	Add(tinysl.PerContext, func(ctx context.Context, myService MyService) (YourService, error){
+		// get your service instance
+		return yourservice(myService.Name()), nil
+	}).
 	ServiceLocator()
+if err != nil {
+	// handle error
+}
+
+func MyRequestHandler(w http.ResponseWriter, req *http.Request) {
+	service, err := tinysl.Get[YourService](req.Context(), sl)
 	if err != nil {
 		// handle error
 	}
 
-	func MyRequestHandler(w http.ResponseWriter, req *http.Request) {
-		service, err := tinysl.Get[YourService](req.Context(), sl)
-		if err != nil {
-			// handle error
-		}
-
-		// use service
-	}
+	// use service
+}
 ```
 
 ### Lifetime constants:
