@@ -1,9 +1,5 @@
-// This package provides simple abstraction to manage lifetime scope of services.
-// This package does not try to be another IOC container.
-// It was created because of need to share same instances of services among gorutines
-// within lifetime of a context.
-// PerContext lifetime scope was main reason to create this package,
-// other scopes were created for convenience.
+// This package provides a simple abstraction to manage lifetime scopes of services.
+// Its purpose is to help share instances of services among goroutines within context lifetime.
 //
 // To install tinysl:
 // 	go get -u github.com/andriiyaremenko/tinysl
