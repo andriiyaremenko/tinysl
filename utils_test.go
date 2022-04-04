@@ -3,89 +3,95 @@ package tinysl_test
 import (
 	"context"
 	"fmt"
+	"io"
+	"time"
 )
 
-type service interface {
-	Call() string
+type nameService interface {
+	Name() string
 }
 
-type service2 interface {
-	Call2() string
+type nameProvider string
+
+func (s nameProvider) Name() string {
+	return string(s)
 }
 
-type service3 interface {
-	Call3() string
+type tableTimer struct {
+	ctx         context.Context
+	nameService nameService
 }
 
-type service4 interface {
-	Call4() string
+type impostor struct {
+	name string
+	hero *hero
 }
 
-type s string
-
-func (t s) Call() string {
-	return string(t)
+func (i *impostor) Disguise() {
+	i.hero = &hero{i.name}
 }
 
-func (t s) Call2() string {
-	return string(t) + "_2"
+func (i *impostor) Announce() string {
+	return fmt.Sprintf("%s is our hero!", i.name)
 }
 
-func (t s) Call3() string {
-	return string(t) + "_3"
+func (i *impostor) Name() string {
+	return i.name
 }
 
-func (t s) Call4() string {
-	return string(t) + "_4"
+type hero struct {
+	name string
 }
 
-func getServiceWithDependency(service service) (service2, error) {
-	base := service.Call()
-	return s(base), nil
+func (h *hero) Announce() string {
+	return fmt.Sprintf("%s is our hero!", h.name)
 }
 
-func getServiceWith2Dependencies(service service, service2 service2) (service3, error) {
-	begin := service.Call()
-	end := service2.Call2()
-	return s(begin + end), nil
+func (c *tableTimer) Countdown(w io.Writer, seconds int) {
+	go func() {
+		total := time.Second * time.Duration(seconds)
+		ticker := time.NewTicker(time.Second)
+
+		for {
+			select {
+			case <-c.ctx.Done():
+				ticker.Stop()
+				w.Write([]byte("oops, looks like you broke it!"))
+
+				return
+			case <-ticker.C:
+				total -= time.Second
+				w.Write([]byte(fmt.Sprintf("%s have %d seconds left", c.nameService.Name(), total)))
+				if total == 0 {
+					ticker.Stop()
+
+					return
+				}
+			}
+		}
+	}()
 }
 
-func getServiceWithDeepDependencies(service2 service2) (service3, error) {
-	base := service2.Call2()
-	return s(base), nil
+func nameProviderConstructor() (nameProvider, error) {
+	return nameProvider("Bob"), nil
 }
 
-func getServiceWithCircularDependency(service3 service3) (service, error) {
-	base := service3.Call3()
-	return s(base), nil
+func nameServiceConstructor() (nameService, error) {
+	return nameProvider("Bob"), nil
 }
 
-func getServiceWithCircularDependencyInsideDependencies(service3 service3) (service2, error) {
-	base := service3.Call3()
-	return s(base), nil
+func tableTimerConstructor(ctx context.Context, nameService nameService) (*tableTimer, error) {
+	return &tableTimer{ctx, nameService}, nil
 }
 
-func getServiceNo4(service3 service3) (service4, error) {
-	base := service3.Call3()
-	return s(base), nil
+func impostorConstructor(nameService nameService, hero *hero) (*impostor, error) {
+	return &impostor{name: nameService.Name(), hero: hero}, nil
 }
 
-func getServiceC(counter *int) func() (service, error) {
-	return func() (service, error) {
-		i := *counter + 1
-		*counter = i
-		return s(fmt.Sprintf("%d attempt", i)), nil
-	}
+func disguisedImpostorConstructor(impostor *impostor) (*hero, error) {
+	return &hero{name: impostor.Name()}, nil
 }
 
-func getServiceC2() (service2, error) {
-	return s("service"), nil
-}
-
-func withContextC(ctx context.Context) (service, error) {
-	return s("withContext"), nil
-}
-
-func emptyS() (service, error) {
-	return s("service"), nil
+func heroConstructor(nameService nameService) (*hero, error) {
+	return &hero{nameService.Name()}, nil
 }

@@ -1,7 +1,6 @@
 package tinysl
 
 import (
-	"context"
 	"fmt"
 	"reflect"
 	"sync"
@@ -10,8 +9,17 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-var _ ServiceLocator = new(container)
 var _ Container = new(container)
+
+// Returns new Container.
+func New() Container {
+	return newContainer()
+}
+
+// Creates new Container, adds constructor and returns newly-created container.
+func Add(lifetime Lifetime, constructor any) Container {
+	return New().Add(lifetime, constructor)
+}
 
 type record struct {
 	lifetime     Lifetime
@@ -22,9 +30,6 @@ type record struct {
 
 func newContainer() *container {
 	return &container{
-		instantiated: true,
-		singletons:   newInstances(),
-		perContext:   newContextInstances(),
 		constructors: make(map[string]record),
 	}
 }
@@ -33,100 +38,12 @@ type container struct {
 	constructorsRWM sync.RWMutex
 
 	err          error
-	instantiated bool
-
-	singletons   *instances
-	perContext   *contextInstances
 	constructors map[string]record
 }
 
-func (sl *container) Get(ctx context.Context, serviceName string) (any, error) {
-	sl.constructorsRWM.RLock()
-
-	record, ok := sl.constructors[serviceName]
-
-	sl.constructorsRWM.RUnlock()
-
-	if !ok {
-		return nil, errors.Errorf(constructorNotFound, serviceName)
-	}
-
-	if record.lifetime == Singleton {
-		if service, ok := sl.singletons.get(serviceName); ok {
-			return service, nil
-		}
-	}
-
-	if record.lifetime == PerContext {
-		if ctx == nil {
-			return nil, errors.Errorf(nilContext, serviceName)
-		}
-
-		if err := ctx.Err(); err != nil {
-			return nil, errors.Wrapf(err, cancelledContext, serviceName)
-		}
-
-		if service, ok := sl.perContext.get(ctx, serviceName); ok {
-			return service, nil
-		}
-	}
-
-	constructor := record.constructor
-	fn := reflect.ValueOf(constructor)
-	args := make([]reflect.Value, 0, 1)
-
-	for i, dep := range record.dependencies {
-		if i == 0 && dep == contextDepName {
-			args = append(args, reflect.ValueOf(ctx))
-			continue
-		}
-
-		service, err := sl.Get(ctx, dep)
-
-		if err != nil {
-			return nil, err
-		}
-
-		args = append(args, reflect.ValueOf(service))
-	}
-
-	values := fn.Call(args)
-
-	if len(values) != 2 {
-		return nil, errors.Errorf(constructorReturnedBadResult, constructor, values)
-	}
-
-	serviceV, errV := values[0], values[1]
-	if err, ok := (errV.Interface()).(error); ok && err != nil {
-		return nil, errors.Wrapf(err, constructorReturnedError, constructor)
-	}
-
-	service := serviceV.Interface()
-
-	switch record.lifetime {
-	case Singleton:
-		sl.singletons.set(serviceName, service)
-	case PerContext:
-		sl.perContext.set(ctx, serviceName, service)
-	}
-
-	return service, nil
-}
-
-func (c *container) Err() error {
-	c.constructorsRWM.RLock()
-	defer c.constructorsRWM.RUnlock()
-
-	if !c.instantiated {
-		return errors.New(containerIsNotInstantiated)
-	}
-
-	return c.err
-}
-
-func (sl *container) Add(lifetime Lifetime, constructor any) Container {
-	if sl.err != nil {
-		return sl
+func (c *container) Add(lifetime Lifetime, constructor any) Container {
+	if c.err != nil {
+		return c
 	}
 
 	t := reflect.TypeOf(constructor)
@@ -140,58 +57,54 @@ func (sl *container) Add(lifetime Lifetime, constructor any) Container {
 	case Transient:
 		errAddText = fmt.Sprintf(wrongConstructor, transientPossibleConstructor, lifetime, t)
 	default:
-		sl.err = errors.Errorf(unsupportedLifetime, lifetime)
+		c.err = errors.Errorf(unsupportedLifetime, lifetime)
 
-		return sl
+		return c
 	}
 
 	if t.Kind() != reflect.Func {
-		sl.err = errors.New(errAddText)
+		c.err = errors.New(errAddText)
 
-		return sl
+		return c
 	}
 
 	if t.IsVariadic() {
-		sl.err = errors.Errorf(variadicConstructorUnsupported, t)
+		c.err = errors.Errorf(variadicConstructorUnsupported, t)
 
-		return sl
+		return c
 	}
 
 	numIn := t.NumIn()
 
 	// Singleton cannot be based on any context, but PerContext and Transient can
 	if lifetime == Singleton && numIn > 0 && t.In(0).Implements(contextInterface) {
-		sl.err = errors.New(errAddText)
+		c.err = errors.New(errAddText)
 
-		return sl
+		return c
 	}
 
 	numOut := t.NumOut()
 	if numOut != 2 {
-		sl.err = errors.New(errAddText)
+		c.err = errors.New(errAddText)
 
-		return sl
+		return c
 	}
 
 	errType := t.Out(1)
 	if !errType.Implements(errorInterface) {
-		sl.err = errors.New(errAddText)
+		c.err = errors.New(errAddText)
 
-		return sl
+		return c
 	}
 
-	sl.constructorsRWM.Lock()
-	defer sl.constructorsRWM.Unlock()
-
-	if !sl.instantiated {
-		sl = newContainer()
-	}
+	c.constructorsRWM.Lock()
+	defer c.constructorsRWM.Unlock()
 
 	serviceType := t.Out(0).String()
-	if v, ok := sl.constructors[serviceType]; ok {
-		sl.err = errors.Errorf(duplicateConstructor, serviceType, v.constructor)
+	if v, ok := c.constructors[serviceType]; ok {
+		c.err = errors.Errorf(duplicateConstructor, serviceType, v.constructor)
 
-		return sl
+		return c
 	}
 
 	r := record{lifetime: lifetime, constructor: constructor, typeName: serviceType}
@@ -199,9 +112,9 @@ func (sl *container) Add(lifetime Lifetime, constructor any) Container {
 	for i := 0; i < numIn; i++ {
 		argT := t.In(i)
 		if i > 0 && argT.Implements(contextInterface) {
-			sl.err = errors.New(errAddText)
+			c.err = errors.New(errAddText)
 
-			return sl
+			return c
 		}
 
 		if argT.Implements(contextInterface) {
@@ -212,9 +125,9 @@ func (sl *container) Add(lifetime Lifetime, constructor any) Container {
 		r.dependencies = append(r.dependencies, argT.String())
 	}
 
-	sl.constructors[serviceType] = r
+	c.constructors[serviceType] = r
 
-	return sl
+	return c
 }
 
 func (c *container) ServiceLocator() (ServiceLocator, error) {
@@ -231,7 +144,7 @@ func (c *container) ServiceLocator() (ServiceLocator, error) {
 		}
 	}
 
-	return c, nil
+	return newLocator(c.constructors), nil
 }
 
 func (c *container) canResolveDependencies(record record, dependentServiceNames ...string) error {
@@ -243,10 +156,10 @@ func (c *container) canResolveDependencies(record record, dependentServiceNames 
 
 		r, ok := c.constructors[dependency]
 		if !ok {
-			return errors.Errorf(
+			return errors.Wrapf(
+				errors.Errorf(constructorNotFound, dependency),
 				missingDependency,
 				record.typeName,
-				fmt.Sprintf(constructorNotFound, dependency),
 			)
 		}
 
