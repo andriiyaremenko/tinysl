@@ -6,6 +6,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/pkg/errors"
 
 	"github.com/andriiyaremenko/tinysl"
 )
@@ -18,9 +19,13 @@ var _ = Describe("Container", func() {
 
 	It("should refuse register Singleton constructor dependant on context.Context", func() {
 		_, err := tinysl.
+			Add(tinysl.Singleton, nameServiceConstructor).
 			Add(tinysl.Singleton, tableTimerConstructor).
 			ServiceLocator()
+
 		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.BadConstructorError)))
+		Expect(errors.Unwrap(err)).Should(BeAssignableToTypeOf(new(tinysl.ConstructorTemplateError)))
 	})
 
 	It("should register PerContext", func() {
@@ -31,8 +36,9 @@ var _ = Describe("Container", func() {
 	It("should register PerContext constructor dependant on context.Context", func() {
 		_, err := tinysl.
 			Add(tinysl.PerContext, tableTimerConstructor).
+			Add(tinysl.Singleton, nameServiceConstructor).
 			ServiceLocator()
-		Expect(err).Should(HaveOccurred())
+		Expect(err).ShouldNot(HaveOccurred())
 	})
 
 	It("should register Transient", func() {
@@ -43,8 +49,9 @@ var _ = Describe("Container", func() {
 	It("should register Transient constructor dependant on context.Context", func() {
 		_, err := tinysl.
 			Add(tinysl.Transient, tableTimerConstructor).
+			Add(tinysl.Singleton, nameServiceConstructor).
 			ServiceLocator()
-		Expect(err).Should(HaveOccurred())
+		Expect(err).ShouldNot(HaveOccurred())
 	})
 
 	It("should not allow add duplicate services for same lifetime", func() {
@@ -52,13 +59,10 @@ var _ = Describe("Container", func() {
 			Add(tinysl.Transient, nameProviderConstructor).
 			Add(tinysl.Transient, nameProviderConstructor).
 			ServiceLocator()
+
 		Expect(err).Should(HaveOccurred())
-		Expect(err).
-			Should(
-				MatchError(
-					"ServiceLocator has already registered constructor for tinysl_test.nameProvider - func() (tinysl_test.nameProvider, error)",
-				),
-			)
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.BadConstructorError)))
+		Expect(errors.Unwrap(err)).Should(MatchError(tinysl.ErrDuplicateConstructor))
 	})
 
 	It("should allow to use same implementation for different types", func() {
@@ -76,13 +80,10 @@ var _ = Describe("Container", func() {
 		_, err := tinysl.
 			Add(tinysl.Transient, variadicConstructor).
 			ServiceLocator()
+
 		Expect(err).Should(HaveOccurred())
-		Expect(err).
-			Should(
-				MatchError(
-					"variadic function as constructor is not supported, got func(...interface {}) (tinysl_test.nameService, error)",
-				),
-			)
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.BadConstructorError)))
+		Expect(errors.Unwrap(err)).Should(MatchError(tinysl.ErrVariadicConstructor))
 	})
 
 	It("should be tread-safe", func() {
@@ -116,13 +117,10 @@ var _ = Describe("Container", func() {
 			Add(tinysl.Transient, impostorConstructor).
 			Add(tinysl.Transient, disguisedImpostorConstructor).
 			ServiceLocator()
+
 		Expect(err).Should(HaveOccurred())
-		Expect(err).
-			Should(
-				MatchError(
-					"circular dependency in func(*tinysl_test.impostor) (*tinysl_test.hero, error): *tinysl_test.hero depends on *tinysl_test.impostor",
-				),
-			)
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.ServiceBuilderError)))
+		Expect(errors.Unwrap(err)).Should(BeAssignableToTypeOf(new(tinysl.CircularDependencyError)))
 	})
 
 	It("should return error for missing dependency", func() {
@@ -131,34 +129,29 @@ var _ = Describe("Container", func() {
 			Add(tinysl.Transient, tableTimerConstructor).
 			Add(tinysl.Transient, impostorConstructor).
 			ServiceLocator()
+
 		Expect(err).Should(HaveOccurred())
-		Expect(err).
-			Should(
-				MatchError(
-					"*tinysl_test.impostor has unregistered dependency: constructor for *tinysl_test.hero not found",
-				),
-			)
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.ServiceBuilderError)))
+		Expect(errors.Unwrap(err)).Should(BeAssignableToTypeOf(new(tinysl.ConstructorNotFoundError)))
 	})
 
 	It("should return error for unsupported lifetime", func() {
 		_, err := tinysl.
 			Add("MyCustomLifetime", nameServiceConstructor).
 			ServiceLocator()
+
 		Expect(err).Should(HaveOccurred())
-		Expect(err).Should(MatchError("MyCustomLifetime Lifetime is unsupported"))
+		Expect(err).Should(BeAssignableToTypeOf(tinysl.LifetimeUnsupportedError("")))
 	})
 
 	It("should return error for wrong constructor type", func() {
 		_, err := tinysl.
 			Add(tinysl.Transient, "jsut random human made mistake").
 			ServiceLocator()
+
 		Expect(err).Should(HaveOccurred())
-		Expect(err).
-			Should(
-				MatchError(
-					"constructor should be of type func(T1, T2, ...) (T, error) | func(context.Context, T1, T2, ...) (T, error) for Transient, got string",
-				),
-			)
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.BadConstructorError)))
+		Expect(errors.Unwrap(err)).Should(BeAssignableToTypeOf(new(tinysl.ConstructorTemplateError)))
 	})
 
 	It("should return error for constructor returning wrong type", func() {
@@ -175,24 +168,16 @@ var _ = Describe("Container", func() {
 			ServiceLocator()
 
 		Expect(err).Should(HaveOccurred())
-		Expect(err).
-			Should(
-				MatchError(
-					"constructor should be of type func(T1, T2, ...) (T, error) | func(context.Context, T1, T2, ...) (T, error) for Transient, got func() error",
-				),
-			)
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.BadConstructorError)))
+		Expect(errors.Unwrap(err)).Should(BeAssignableToTypeOf(new(tinysl.ConstructorTemplateError)))
 
 		_, err = tinysl.
 			Add(tinysl.Transient, badConstructor2).
 			ServiceLocator()
 
 		Expect(err).Should(HaveOccurred())
-		Expect(err).
-			Should(
-				MatchError(
-					"constructor should be of type func(T1, T2, ...) (T, error) | func(context.Context, T1, T2, ...) (T, error) for Transient, got func() (int, bool)",
-				),
-			)
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.BadConstructorError)))
+		Expect(errors.Unwrap(err)).Should(BeAssignableToTypeOf(new(tinysl.ConstructorTemplateError)))
 	})
 
 	It("should return error for constructor with context.Context not as a first argument", func() {
@@ -206,12 +191,8 @@ var _ = Describe("Container", func() {
 			ServiceLocator()
 
 		Expect(err).Should(HaveOccurred())
-		Expect(err).
-			Should(
-				MatchError(
-					"constructor should be of type func(T1, T2, ...) (T, error) | func(context.Context, T1, T2, ...) (T, error) for Transient, got func(tinysl_test.nameService, context.Context) (*tinysl_test.hero, error)",
-				),
-			)
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.BadConstructorError)))
+		Expect(errors.Unwrap(err)).Should(BeAssignableToTypeOf(new(tinysl.ConstructorTemplateError)))
 	})
 
 	It("should return first encountered error", func() {
@@ -219,13 +200,9 @@ var _ = Describe("Container", func() {
 			Add(tinysl.Transient, "jsut random human made mistake").
 			Add("MyCustomLifetime", nameServiceConstructor).
 			ServiceLocator()
-		Expect(err).Should(HaveOccurred())
-		Expect(err).
-			Should(
-				MatchError(
-					"constructor should be of type func(T1, T2, ...) (T, error) | func(context.Context, T1, T2, ...) (T, error) for Transient, got string",
-				),
-			)
-	})
 
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.BadConstructorError)))
+		Expect(errors.Unwrap(err)).Should(BeAssignableToTypeOf(new(tinysl.ConstructorTemplateError)))
+	})
 })

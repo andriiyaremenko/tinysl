@@ -93,7 +93,8 @@ var _ = Describe("ServiceLocator", func() {
 		_, err = tinysl.Get[*hero](ctx, sl)
 
 		Expect(err).Should(HaveOccurred())
-		Expect(err).Should(MatchError("cannot build PerContext service *tinysl_test.hero: context canceled"))
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.ServiceBuilderError)))
+		Expect(errors.Unwrap(err)).Should(MatchError(context.Canceled))
 	})
 
 	It("should return error for nil context for PerContext", func() {
@@ -107,7 +108,8 @@ var _ = Describe("ServiceLocator", func() {
 		_, err = tinysl.Get[*hero](nil, sl)
 
 		Expect(err).Should(HaveOccurred())
-		Expect(err).Should(MatchError("cannot build PerContext service *tinysl_test.hero: got nil context"))
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.ServiceBuilderError)))
+		Expect(errors.Unwrap(err)).Should(MatchError(tinysl.ErrNilContext))
 	})
 
 	It("should always return the same instance for Singleton", func() {
@@ -172,11 +174,11 @@ var _ = Describe("ServiceLocator", func() {
 		_, err = tinysl.Get[*impostor](ctx, sl)
 
 		Expect(err).Should(HaveOccurred())
-		Expect(err).Should(MatchError("constructor for *tinysl_test.impostor not found"))
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.ConstructorNotFoundError)))
 	})
 
 	It("should be tread-safe for Singleton", func() {
-		for i := 100000; i > 0; i-- {
+		for i := 5_000; i > 0; i-- {
 			sl, err := tinysl.
 				Add(tinysl.Singleton, nameServiceConstructor).
 				Add(tinysl.Singleton, heroConstructor).
@@ -189,29 +191,30 @@ var _ = Describe("ServiceLocator", func() {
 			ctx2, cancel2 := context.WithCancel(ctx1)
 
 			var hero1, hero2, hero3 *hero
+			var err1, err2, err3 error
 			var wg sync.WaitGroup
 
 			wg.Add(1)
 			go func() {
-				hero1, err = tinysl.Get[*hero](ctx1, sl)
+				hero1, err1 = tinysl.Get[*hero](ctx1, sl)
 
-				Expect(err).ShouldNot(HaveOccurred())
+				Expect(err1).ShouldNot(HaveOccurred())
 				wg.Done()
 			}()
 
 			wg.Add(1)
 			go func() {
-				hero2, err = tinysl.Get[*hero](ctx2, sl)
+				hero2, err2 = tinysl.Get[*hero](ctx2, sl)
 
-				Expect(err).ShouldNot(HaveOccurred())
+				Expect(err2).ShouldNot(HaveOccurred())
 				wg.Done()
 			}()
 
 			wg.Add(1)
 			go func() {
-				hero3, err = tinysl.Get[*hero](ctx1, sl)
+				hero3, err3 = tinysl.Get[*hero](ctx1, sl)
 
-				Expect(err).ShouldNot(HaveOccurred())
+				Expect(err3).ShouldNot(HaveOccurred())
 				wg.Done()
 			}()
 
@@ -236,7 +239,7 @@ var _ = Describe("ServiceLocator", func() {
 	})
 
 	It("should be tread-safe for PerContext", func() {
-		for i := 100000; i > 0; i-- {
+		for i := 5_000; i > 0; i-- {
 			sl, err := tinysl.
 				Add(tinysl.PerContext, nameServiceConstructor).
 				Add(tinysl.PerContext, heroConstructor).
@@ -249,29 +252,30 @@ var _ = Describe("ServiceLocator", func() {
 			ctx2, cancel2 := context.WithCancel(ctx1)
 
 			var hero1, hero2, hero3 *hero
+			var err1, err2, err3 error
 			var wg sync.WaitGroup
 
 			wg.Add(1)
 			go func() {
-				hero1, err = tinysl.Get[*hero](ctx1, sl)
+				hero1, err1 = tinysl.Get[*hero](ctx1, sl)
 
-				Expect(err).ShouldNot(HaveOccurred())
+				Expect(err1).ShouldNot(HaveOccurred())
 				wg.Done()
 			}()
 
 			wg.Add(1)
 			go func() {
-				hero2, err = tinysl.Get[*hero](ctx2, sl)
+				hero2, err2 = tinysl.Get[*hero](ctx2, sl)
 
-				Expect(err).ShouldNot(HaveOccurred())
+				Expect(err2).ShouldNot(HaveOccurred())
 				wg.Done()
 			}()
 
 			wg.Add(1)
 			go func() {
-				hero3, err = tinysl.Get[*hero](ctx1, sl)
+				hero3, err3 = tinysl.Get[*hero](ctx1, sl)
 
-				Expect(err).ShouldNot(HaveOccurred())
+				Expect(err3).ShouldNot(HaveOccurred())
 				wg.Done()
 			}()
 
@@ -371,6 +375,11 @@ var _ = Describe("ServiceLocator", func() {
 		_, err = tinysl.Get[*hero](ctx, sl)
 
 		Expect(err).Should(HaveOccurred())
-		Expect(err).Should(MatchError("constructor func() (tinysl_test.nameService, error) returned an error: some unfortunate error"))
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.ServiceBuilderError)))
+
+		err = errors.Unwrap(err)
+
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.ConstructorError)))
+		Expect(errors.Unwrap(err)).Should(MatchError("some unfortunate error"))
 	})
 })

@@ -1,11 +1,9 @@
 package tinysl
 
 import (
-	"fmt"
 	"reflect"
 	"sync"
 
-	"github.com/pkg/errors"
 	"golang.org/x/exp/slices"
 )
 
@@ -47,29 +45,23 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 	}
 
 	t := reflect.TypeOf(constructor)
-	var errAddText string
 
-	switch lifetime {
-	case Singleton:
-		errAddText = fmt.Sprintf(wrongConstructor, singletonPossibleConstructor, lifetime, t)
-	case PerContext:
-		errAddText = fmt.Sprintf(wrongConstructor, perContextPossibleConstructor, lifetime, t)
-	case Transient:
-		errAddText = fmt.Sprintf(wrongConstructor, transientPossibleConstructor, lifetime, t)
-	default:
-		c.err = errors.Errorf(unsupportedLifetime, lifetime)
+	if lifetime != Singleton &&
+		lifetime != PerContext &&
+		lifetime != Transient {
+		c.err = LifetimeUnsupportedError(lifetime)
 
 		return c
 	}
 
 	if t.Kind() != reflect.Func {
-		c.err = errors.New(errAddText)
+		c.err = NewConstructorUnsupportedError(t, lifetime)
 
 		return c
 	}
 
 	if t.IsVariadic() {
-		c.err = errors.Errorf(variadicConstructorUnsupported, t)
+		c.err = NewBadConstructorError(ErrVariadicConstructor, t)
 
 		return c
 	}
@@ -78,21 +70,21 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 
 	// Singleton cannot be based on any context, but PerContext and Transient can
 	if lifetime == Singleton && numIn > 0 && t.In(0).Implements(contextInterface) {
-		c.err = errors.New(errAddText)
+		c.err = NewConstructorUnsupportedError(t, lifetime)
 
 		return c
 	}
 
 	numOut := t.NumOut()
 	if numOut != 2 {
-		c.err = errors.New(errAddText)
+		c.err = NewConstructorUnsupportedError(t, lifetime)
 
 		return c
 	}
 
 	errType := t.Out(1)
 	if !errType.Implements(errorInterface) {
-		c.err = errors.New(errAddText)
+		c.err = NewConstructorUnsupportedError(t, lifetime)
 
 		return c
 	}
@@ -101,8 +93,8 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 	defer c.constructorsRWM.Unlock()
 
 	serviceType := t.Out(0).String()
-	if v, ok := c.constructors[serviceType]; ok {
-		c.err = errors.Errorf(duplicateConstructor, serviceType, v.constructor)
+	if _, ok := c.constructors[serviceType]; ok {
+		c.err = NewBadConstructorError(ErrDuplicateConstructor, t)
 
 		return c
 	}
@@ -112,7 +104,7 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 	for i := 0; i < numIn; i++ {
 		argT := t.In(i)
 		if i > 0 && argT.Implements(contextInterface) {
-			c.err = errors.New(errAddText)
+			c.err = NewConstructorUnsupportedError(t, lifetime)
 
 			return c
 		}
@@ -156,19 +148,19 @@ func (c *container) canResolveDependencies(record record, dependentServiceNames 
 
 		r, ok := c.constructors[dependency]
 		if !ok {
-			return errors.Wrapf(
-				errors.Errorf(constructorNotFound, dependency),
-				missingDependency,
+			return NewServiceBuilderError(
+				NewConstructorNotFoundError(dependency),
+                record.lifetime,
 				record.typeName,
 			)
 		}
 
 		if slices.Contains(dependentServiceNames, dependency) {
-			return errors.Errorf(
-				circularDependencyFound,
-				record.constructor,
+			return NewServiceBuilderError(
+				NewCircularDependencyError(record.constructor, dependency),
+                record.lifetime,
 				record.typeName,
-				dependency)
+			)
 		}
 
 		if err := c.canResolveDependencies(r, dependentServiceNames...); err != nil {

@@ -35,7 +35,7 @@ func (l *locator) Get(ctx context.Context, serviceName string) (any, error) {
 	record, ok := l.constructors[serviceName]
 
 	if !ok {
-		return nil, errors.Errorf(constructorNotFound, serviceName)
+		return nil, NewConstructorNotFoundError(serviceName)
 	}
 
 	switch record.lifetime {
@@ -46,7 +46,7 @@ func (l *locator) Get(ctx context.Context, serviceName string) (any, error) {
 	case Transient:
 		return l.get(ctx, record)
 	default:
-		panic(errors.Errorf("broken record %s: unexpected Lifetime %s", record.typeName, record.lifetime))
+		panic(errors.Wrapf(LifetimeUnsupportedError(record.lifetime), "broken record %s", record.typeName))
 	}
 }
 
@@ -73,12 +73,20 @@ func (l *locator) get(ctx context.Context, record record) (any, error) {
 	values := fn.Call(args)
 
 	if len(values) != 2 {
-		return nil, errors.Errorf(constructorReturnedBadResult, constructor, values)
+		return nil, NewServiceBuilderError(
+			NewConstructorError(NewUnexpectedResultError(values)),
+			record.lifetime,
+			record.typeName,
+		)
 	}
 
 	serviceV, errV := values[0], values[1]
 	if err, ok := (errV.Interface()).(error); ok && err != nil {
-		return nil, errors.Wrapf(err, constructorReturnedError, constructor)
+		return nil, NewServiceBuilderError(
+			NewConstructorError(err),
+			record.lifetime,
+			record.typeName,
+		)
 	}
 
 	service := serviceV.Interface()
@@ -117,11 +125,11 @@ func (l *locator) getSingleton(ctx context.Context, record record, serviceName s
 
 func (l *locator) getPerContext(ctx context.Context, record record, serviceName string) (any, error) {
 	if ctx == nil {
-		return nil, errors.Wrapf(errors.New("got nil context"), cannotBuildService, record.lifetime, serviceName)
+		return nil, NewServiceBuilderError(ErrNilContext, record.lifetime, serviceName)
 	}
 
 	if err := ctx.Err(); err != nil {
-		return nil, errors.Wrapf(err, cannotBuildService, record.lifetime, serviceName)
+		return nil, NewServiceBuilderError(err, record.lifetime, serviceName)
 	}
 
 	l.pcMuMu.Lock()
