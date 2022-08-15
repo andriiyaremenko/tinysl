@@ -8,8 +8,9 @@ type propertyFiller struct {
 	NewInstance  func(values ...any) (any, error)
 }
 
-func T[T any]() (propertyFiller, error) {
-	t := reflect.TypeOf(new(T)).Elem()
+// Type constructor that would automatically fill public fields using registered constructors.
+func T[Type any]() (propertyFiller, error) {
+	t := reflect.TypeOf(new(Type)).Elem()
 
 	if t.Kind() != reflect.Struct {
 		return propertyFiller{}, &TError{T: t}
@@ -30,14 +31,15 @@ func T[T any]() (propertyFiller, error) {
 	}
 
 	return propertyFiller{
-		Type:         reflect.TypeOf(new(T)).Elem(),
+		Type:         reflect.TypeOf(new(Type)).Elem(),
 		Dependencies: dependencies,
-		NewInstance:  getValueInstance[T](fields),
+		NewInstance:  getValueInstance[Type](fields),
 	}, nil
 }
 
-func P[T any]() (propertyFiller, error) {
-	t := reflect.TypeOf(new(T)).Elem()
+// *Type constructor that would automatically fill public fields using registered constructors.
+func P[Type any]() (propertyFiller, error) {
+	t := reflect.TypeOf(new(Type)).Elem()
 
 	if t.Kind() != reflect.Struct {
 		return propertyFiller{}, &PError{T: t}
@@ -58,16 +60,18 @@ func P[T any]() (propertyFiller, error) {
 	}
 
 	return propertyFiller{
-		Type:         reflect.TypeOf(new(T)),
+		Type:         reflect.TypeOf(new(Type)),
 		Dependencies: dependencies,
-		NewInstance:  getPointerInstance[T](fields),
+		NewInstance:  getPointerInstance[Type](fields),
 	}, nil
 }
 
-func I[I, T any]() (propertyFiller, error) {
-	p := reflect.TypeOf(new(T))
+// Interface constructor that would use *Type as implementation
+// and automatically fill public fields using registered constructors.
+func I[Interface, Type any]() (propertyFiller, error) {
+	p := reflect.TypeOf(new(Type))
 	t := p.Elem()
-	i := reflect.TypeOf(new(I)).Elem()
+	i := reflect.TypeOf(new(Interface)).Elem()
 
 	if t.Kind() != reflect.Struct {
 		return propertyFiller{}, newIError(ErrIWrongTType, i, t)
@@ -96,9 +100,9 @@ func I[I, T any]() (propertyFiller, error) {
 	}
 
 	return propertyFiller{
-		Type:         reflect.TypeOf(new(I)).Elem(),
+		Type:         reflect.TypeOf(new(Interface)).Elem(),
 		Dependencies: dependencies,
-		NewInstance:  getPointerInstance[T](fields),
+		NewInstance:  getPointerInstance[Type](fields),
 	}, nil
 }
 
