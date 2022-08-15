@@ -67,6 +67,6 @@ func MyRequestHandler(w http.ResponseWriter, req *http.Request) {
  * `func(context.Context, T1, T2, ...) (T, error)` - for PerContext and Transient only    
 
 ### Public fields constructor
- * `tinysl.T[Type]` - would return Type instance with filled public fields using registered constructors.
- * `tinysl.P[Type]` - would return *Type instance with filled public fields using registered constructors.
- * 	`tinysl.I[Interface, Type]` - would return Interface implemented by *Type instance with filled public fields using registered constructors.
+ * `tinysl.T[Type]` - would return `Type` instance with filled public fields using registered constructors.
+ * `tinysl.P[Type]` - would return `*Type` instance with filled public fields using registered constructors.
+ * 	`tinysl.I[Interface, Type]` - would return `Interface` implemented by `*Type` instance with filled public fields using registered constructors.
