@@ -74,8 +74,8 @@ var _ = Describe("Container", func() {
 	})
 
 	It("should refuse register variadic constructors", func() {
-		variadicConstructor := func(args ...any) (nameService, error) {
-			return nameProvider("Bob"), nil
+		variadicConstructor := func(args ...any) (NameService, error) {
+			return NameProvider("Bob"), nil
 		}
 		_, err := tinysl.
 			Add(tinysl.Transient, variadicConstructor).
@@ -181,8 +181,8 @@ var _ = Describe("Container", func() {
 	})
 
 	It("should return error for constructor with context.Context not as a first argument", func() {
-		badConstructor := func(nameService nameService, ctx context.Context) (*hero, error) {
-			return &hero{name: nameService.Name()}, nil
+		badConstructor := func(nameService NameService, ctx context.Context) (*Hero, error) {
+			return &Hero{name: nameService.Name()}, nil
 		}
 
 		_, err := tinysl.
@@ -204,5 +204,188 @@ var _ = Describe("Container", func() {
 		Expect(err).Should(HaveOccurred())
 		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.BadConstructorError)))
 		Expect(errors.Unwrap(err)).Should(BeAssignableToTypeOf(new(tinysl.ConstructorTemplateError)))
+	})
+
+	It("should return error if T is not called with a struct type argument", func() {
+		_, err := tinysl.
+			Add(tinysl.Transient, tinysl.T[int]).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.TError)))
+
+		_, err = tinysl.
+			Add(tinysl.Transient, tinysl.T[string]).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.TError)))
+
+		_, err = tinysl.
+			Add(tinysl.Transient, tinysl.T[*NameService]).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.TError)))
+
+		_, err = tinysl.
+			Add(tinysl.Transient, tinysl.T[NameService]).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.TError)))
+	})
+
+	It("should return error if T is called with type that was already added", func() {
+		_, err := tinysl.
+			Add(tinysl.Transient, func() (Hero, error) { return Hero{}, nil }).
+			Add(tinysl.Transient, tinysl.T[Hero]).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.BadConstructorError)))
+		Expect(errors.Unwrap(err)).Should(MatchError(tinysl.ErrDuplicateConstructor))
+	})
+
+	It("should work with T", func() {
+		_, err := tinysl.
+			Add(tinysl.Transient, nameServiceConstructor).
+			Add(tinysl.Transient, tinysl.T[ServiceWithPublicFields]).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+	})
+
+	It("should return error if P is not called with a struct type argument", func() {
+		_, err := tinysl.
+			Add(tinysl.Transient, tinysl.P[int]).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.PError)))
+
+		_, err = tinysl.
+			Add(tinysl.Transient, tinysl.P[string]).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.PError)))
+
+		_, err = tinysl.
+			Add(tinysl.Transient, tinysl.P[*NameService]).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.PError)))
+
+		_, err = tinysl.
+			Add(tinysl.Transient, tinysl.P[NameService]).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.PError)))
+	})
+
+	It("should return error if P is called with type that was already added", func() {
+		_, err := tinysl.
+			Add(tinysl.Transient, heroConstructor).
+			Add(tinysl.Transient, tinysl.P[Hero]).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.BadConstructorError)))
+		Expect(errors.Unwrap(err)).Should(MatchError(tinysl.ErrDuplicateConstructor))
+	})
+
+	It("should work with P", func() {
+		_, err := tinysl.
+			Add(tinysl.Transient, nameServiceConstructor).
+			Add(tinysl.Transient, tinysl.P[ServiceWithPublicFields]).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+	})
+
+	It("should return error if I is not called with T as a struct", func() {
+		_, err := tinysl.
+			Add(tinysl.Transient, tinysl.I[int, int]).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.IError)))
+		Expect(errors.Unwrap(err)).Should(MatchError(tinysl.ErrIWrongTType))
+
+		_, err = tinysl.
+			Add(tinysl.Transient, tinysl.I[*int, int]).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.IError)))
+		Expect(errors.Unwrap(err)).Should(MatchError(tinysl.ErrIWrongTType))
+
+		_, err = tinysl.
+			Add(tinysl.Transient, tinysl.I[string, string]).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.IError)))
+		Expect(errors.Unwrap(err)).Should(MatchError(tinysl.ErrIWrongTType))
+
+		_, err = tinysl.
+			Add(tinysl.Transient, tinysl.I[*string, string]).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.IError)))
+		Expect(errors.Unwrap(err)).Should(MatchError(tinysl.ErrIWrongTType))
+
+		_, err = tinysl.
+			Add(tinysl.Transient, tinysl.I[NameService, NameService]).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.IError)))
+		Expect(errors.Unwrap(err)).Should(MatchError(tinysl.ErrIWrongTType))
+	})
+
+	It("should return error if I is called with I type argument that is not an interface", func() {
+		_, err := tinysl.
+			Add(tinysl.Transient, nameServiceConstructor).
+			Add(tinysl.Transient, tinysl.I[NameProvider, Impostor]).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.IError)))
+		Expect(errors.Unwrap(err)).Should(MatchError(tinysl.ErrIWrongIType))
+	})
+
+	It("should return error if I is called with T that does not implement I", func() {
+		_, err := tinysl.
+			Add(tinysl.Transient, nameServiceConstructor).
+			Add(tinysl.Transient, tinysl.I[NameService, Hero]).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.IError)))
+		Expect(errors.Unwrap(err)).Should(MatchError(tinysl.ErrITDoesNotImplementI))
+	})
+
+	It("should return error if I is called with I type that was already added", func() {
+		_, err := tinysl.
+			Add(tinysl.Transient, nameServiceConstructor).
+			Add(tinysl.Transient, tinysl.I[NameService, Impostor]).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.BadConstructorError)))
+		Expect(errors.Unwrap(err)).Should(MatchError(tinysl.ErrDuplicateConstructor))
+	})
+
+	It("should work with I", func() {
+		_, err := tinysl.
+			Add(tinysl.Transient, tinysl.I[NameService, Impostor]).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
 	})
 })

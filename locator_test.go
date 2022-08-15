@@ -21,11 +21,11 @@ var _ = Describe("ServiceLocator", func() {
 
 		Expect(err).ShouldNot(HaveOccurred())
 
-		hero1, err := tinysl.Get[*hero](context.TODO(), sl)
+		hero1, err := tinysl.Get[*Hero](context.TODO(), sl)
 
 		Expect(err).ShouldNot(HaveOccurred())
 
-		hero2, err := tinysl.Get[*hero](context.TODO(), sl)
+		hero2, err := tinysl.Get[*Hero](context.TODO(), sl)
 
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(hero1).NotTo(BeIdenticalTo(hero2))
@@ -43,11 +43,11 @@ var _ = Describe("ServiceLocator", func() {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
-		hero1, err := tinysl.Get[*hero](ctx, sl)
+		hero1, err := tinysl.Get[*Hero](ctx, sl)
 
 		Expect(err).ShouldNot(HaveOccurred())
 
-		hero2, err := tinysl.Get[*hero](ctx, sl)
+		hero2, err := tinysl.Get[*Hero](ctx, sl)
 
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(hero1).To(BeIdenticalTo(hero2))
@@ -68,11 +68,11 @@ var _ = Describe("ServiceLocator", func() {
 		defer cancel1()
 		defer cancel2()
 
-		hero1, err := tinysl.Get[*hero](ctx1, sl)
+		hero1, err := tinysl.Get[*Hero](ctx1, sl)
 
 		Expect(err).ShouldNot(HaveOccurred())
 
-		hero2, err := tinysl.Get[*hero](ctx2, sl)
+		hero2, err := tinysl.Get[*Hero](ctx2, sl)
 
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(hero1).NotTo(BeIdenticalTo(hero2))
@@ -90,7 +90,7 @@ var _ = Describe("ServiceLocator", func() {
 		ctx, cancel := context.WithCancel(ctx)
 		cancel()
 
-		_, err = tinysl.Get[*hero](ctx, sl)
+		_, err = tinysl.Get[*Hero](ctx, sl)
 
 		Expect(err).Should(HaveOccurred())
 		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.ServiceBuilderError)))
@@ -105,7 +105,7 @@ var _ = Describe("ServiceLocator", func() {
 
 		Expect(err).ShouldNot(HaveOccurred())
 
-		_, err = tinysl.Get[*hero](nil, sl)
+		_, err = tinysl.Get[*Hero](nil, sl)
 
 		Expect(err).Should(HaveOccurred())
 		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.ServiceBuilderError)))
@@ -124,11 +124,11 @@ var _ = Describe("ServiceLocator", func() {
 
 		defer cancel()
 
-		hero1, err := tinysl.Get[*hero](ctx1, sl)
+		hero1, err := tinysl.Get[*Hero](ctx1, sl)
 
 		Expect(err).ShouldNot(HaveOccurred())
 
-		hero2, err := tinysl.Get[*hero](ctx2, sl)
+		hero2, err := tinysl.Get[*Hero](ctx2, sl)
 
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(hero1).To(BeIdenticalTo(hero2))
@@ -145,17 +145,17 @@ var _ = Describe("ServiceLocator", func() {
 		Expect(err).ShouldNot(HaveOccurred())
 
 		ctx := context.TODO()
-		impostor, err := tinysl.Get[*impostor](ctx, sl)
+		impostor, err := tinysl.Get[*Impostor](ctx, sl)
 
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(impostor.Announce()).To(Equal("Bob is our hero!"))
 
-		hero, err := tinysl.Get[*hero](ctx, sl)
+		hero, err := tinysl.Get[*Hero](ctx, sl)
 
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(hero.Announce()).To(Equal("Bob is our hero!"))
 
-		nameService, err := tinysl.Get[nameService](ctx, sl)
+		nameService, err := tinysl.Get[NameService](ctx, sl)
 
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(nameService.Name()).To(Equal("Bob"))
@@ -171,7 +171,7 @@ var _ = Describe("ServiceLocator", func() {
 		Expect(err).ShouldNot(HaveOccurred())
 
 		ctx := context.TODO()
-		_, err = tinysl.Get[*impostor](ctx, sl)
+		_, err = tinysl.Get[*Impostor](ctx, sl)
 
 		Expect(err).Should(HaveOccurred())
 		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.ConstructorNotFoundError)))
@@ -190,13 +190,13 @@ var _ = Describe("ServiceLocator", func() {
 			ctx1, cancel1 := context.WithCancel(ctx1)
 			ctx2, cancel2 := context.WithCancel(ctx1)
 
-			var hero1, hero2, hero3 *hero
+			var hero1, hero2, hero3 *Hero
 			var err1, err2, err3 error
 			var wg sync.WaitGroup
 
 			wg.Add(1)
 			go func() {
-				hero1, err1 = tinysl.Get[*hero](ctx1, sl)
+				hero1, err1 = tinysl.Get[*Hero](ctx1, sl)
 
 				Expect(err1).ShouldNot(HaveOccurred())
 				wg.Done()
@@ -204,7 +204,7 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
-				hero2, err2 = tinysl.Get[*hero](ctx2, sl)
+				hero2, err2 = tinysl.Get[*Hero](ctx2, sl)
 
 				Expect(err2).ShouldNot(HaveOccurred())
 				wg.Done()
@@ -212,7 +212,7 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
-				hero3, err3 = tinysl.Get[*hero](ctx1, sl)
+				hero3, err3 = tinysl.Get[*Hero](ctx1, sl)
 
 				Expect(err3).ShouldNot(HaveOccurred())
 				wg.Done()
@@ -220,7 +220,7 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
-				_, err = tinysl.Get[nameService](ctx1, sl)
+				_, err = tinysl.Get[NameService](ctx1, sl)
 
 				Expect(err).ShouldNot(HaveOccurred())
 				wg.Done()
@@ -251,13 +251,13 @@ var _ = Describe("ServiceLocator", func() {
 			ctx1, cancel1 := context.WithCancel(ctx1)
 			ctx2, cancel2 := context.WithCancel(ctx1)
 
-			var hero1, hero2, hero3 *hero
+			var hero1, hero2, hero3 *Hero
 			var err1, err2, err3 error
 			var wg sync.WaitGroup
 
 			wg.Add(1)
 			go func() {
-				hero1, err1 = tinysl.Get[*hero](ctx1, sl)
+				hero1, err1 = tinysl.Get[*Hero](ctx1, sl)
 
 				Expect(err1).ShouldNot(HaveOccurred())
 				wg.Done()
@@ -265,7 +265,7 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
-				hero2, err2 = tinysl.Get[*hero](ctx2, sl)
+				hero2, err2 = tinysl.Get[*Hero](ctx2, sl)
 
 				Expect(err2).ShouldNot(HaveOccurred())
 				wg.Done()
@@ -273,7 +273,7 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
-				hero3, err3 = tinysl.Get[*hero](ctx1, sl)
+				hero3, err3 = tinysl.Get[*Hero](ctx1, sl)
 
 				Expect(err3).ShouldNot(HaveOccurred())
 				wg.Done()
@@ -281,7 +281,7 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
-				_, err = tinysl.Get[nameService](ctx1, sl)
+				_, err = tinysl.Get[NameService](ctx1, sl)
 
 				Expect(err).ShouldNot(HaveOccurred())
 				wg.Done()
@@ -312,21 +312,21 @@ var _ = Describe("ServiceLocator", func() {
 			ctx1, cancel1 := context.WithCancel(ctx1)
 			ctx2, cancel2 := context.WithCancel(ctx1)
 
-			var hero1, hero2, hero3 *hero
+			var hero1, hero2, hero3 *Hero
 
-			hero1, err = tinysl.Get[*hero](ctx1, sl)
-
-			Expect(err).ShouldNot(HaveOccurred())
-
-			hero2, err = tinysl.Get[*hero](ctx2, sl)
+			hero1, err = tinysl.Get[*Hero](ctx1, sl)
 
 			Expect(err).ShouldNot(HaveOccurred())
 
-			hero3, err = tinysl.Get[*hero](ctx1, sl)
+			hero2, err = tinysl.Get[*Hero](ctx2, sl)
 
 			Expect(err).ShouldNot(HaveOccurred())
 
-			_, err = tinysl.Get[nameService](ctx1, sl)
+			hero3, err = tinysl.Get[*Hero](ctx1, sl)
+
+			Expect(err).ShouldNot(HaveOccurred())
+
+			_, err = tinysl.Get[NameService](ctx1, sl)
 
 			Expect(err).ShouldNot(HaveOccurred())
 
@@ -357,7 +357,7 @@ var _ = Describe("ServiceLocator", func() {
 	})
 
 	It("should return error if constructor returned error", func() {
-		errConstructor := func() (nameService, error) {
+		errConstructor := func() (NameService, error) {
 			return nil, errors.New("some unfortunate error")
 		}
 		sl, err := tinysl.
@@ -372,7 +372,7 @@ var _ = Describe("ServiceLocator", func() {
 
 		defer cancel()
 
-		_, err = tinysl.Get[*hero](ctx, sl)
+		_, err = tinysl.Get[*Hero](ctx, sl)
 
 		Expect(err).Should(HaveOccurred())
 		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.ServiceBuilderError)))
@@ -381,5 +381,68 @@ var _ = Describe("ServiceLocator", func() {
 
 		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.ConstructorError)))
 		Expect(errors.Unwrap(err)).Should(MatchError("some unfortunate error"))
+	})
+
+	It("should work with T", func() {
+		sl, err := tinysl.
+			Add(tinysl.Transient, nameServiceConstructor).
+			Add(tinysl.PerContext, tinysl.T[ServiceWithPublicFields]).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		ctx := context.TODO()
+		ctx, cancel := context.WithCancel(ctx)
+
+		defer cancel()
+
+		service, err := tinysl.Get[ServiceWithPublicFields](ctx, sl)
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		Expect(service.SomeProperty()).To(BeEmpty())
+		Expect(service.Name()).To(Equal("Bob"))
+	})
+
+	It("should work with P", func() {
+		sl, err := tinysl.
+			Add(tinysl.Transient, nameServiceConstructor).
+			Add(tinysl.PerContext, tinysl.P[ServiceWithPublicFields]).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		ctx := context.TODO()
+		ctx, cancel := context.WithCancel(ctx)
+
+		defer cancel()
+
+		service, err := tinysl.Get[*ServiceWithPublicFields](ctx, sl)
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		Expect(service.SomeProperty()).To(BeEmpty())
+		Expect(service.Name()).To(Equal("Bob"))
+	})
+
+	It("should work with I", func() {
+		sl, err := tinysl.
+			Add(tinysl.Transient, nameServiceConstructor).
+			Add(tinysl.PerContext, tinysl.I[HelloService, ServiceWithPublicFields]).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		ctx := context.TODO()
+		ctx, cancel := context.WithCancel(ctx)
+
+		defer cancel()
+
+		service, err := tinysl.Get[HelloService](ctx, sl)
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		Expect(service.Hello()).To(Equal("Hello Bob"))
+		Expect(service.(*ServiceWithPublicFields).SomeProperty()).To(BeEmpty())
 	})
 })
