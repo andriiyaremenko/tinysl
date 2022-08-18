@@ -26,12 +26,15 @@ var (
 	ErrVariadicConstructor  = errors.New("variadic constructor is not supported")
 	ErrDuplicateConstructor = errors.New("ServiceLocator has already registered constructor for this type")
 	ErrNilContext           = errors.New("got nil context")
+	ErrIWrongTType          = errors.New("I can be used only with T as a struct")
+	ErrIWrongIType          = errors.New("I can be used only with I as an interface")
+	ErrITDoesNotImplementI  = errors.New("I can only be used with T if T or *T implements I")
 )
 
-func NewConstructorUnsupportedError(constructorType reflect.Type, lifetime Lifetime) error {
+func newConstructorUnsupportedError(constructorType reflect.Type, lifetime Lifetime) error {
 	switch lifetime {
 	case Singleton:
-		return NewBadConstructorError(
+		return newBadConstructorError(
 			&ConstructorTemplateError{
 				Lifetime:                      lifetime,
 				SupportedConstructorTemplates: singletonPossibleConstructor,
@@ -39,7 +42,7 @@ func NewConstructorUnsupportedError(constructorType reflect.Type, lifetime Lifet
 			constructorType,
 		)
 	case PerContext:
-		return NewBadConstructorError(
+		return newBadConstructorError(
 			&ConstructorTemplateError{
 				Lifetime:                      lifetime,
 				SupportedConstructorTemplates: perContextPossibleConstructor,
@@ -47,7 +50,7 @@ func NewConstructorUnsupportedError(constructorType reflect.Type, lifetime Lifet
 			constructorType,
 		)
 	case Transient:
-		return NewBadConstructorError(
+		return newBadConstructorError(
 			&ConstructorTemplateError{
 				Lifetime:                      lifetime,
 				SupportedConstructorTemplates: transientPossibleConstructor,
@@ -65,7 +68,7 @@ func (lifetime LifetimeUnsupportedError) Error() string {
 	return fmt.Sprintf("%s Lifetime is unsupported", string(lifetime))
 }
 
-func NewBadConstructorError(cause error, constructorType reflect.Type) error {
+func newBadConstructorError(cause error, constructorType reflect.Type) error {
 	return &BadConstructorError{
 		cause:           cause,
 		ConstructorType: constructorType,
@@ -82,6 +85,40 @@ func (err *BadConstructorError) Error() string {
 }
 
 func (err *BadConstructorError) Unwrap() error {
+	return err.cause
+}
+
+type TError struct {
+	T reflect.Type
+}
+
+func (err *TError) Error() string {
+	return fmt.Sprintf("tinysl.T can only be used with a struct, got %s", err.T)
+}
+
+type PError struct {
+	T reflect.Type
+}
+
+func (err *PError) Error() string {
+	return fmt.Sprintf("tinysl.P can only be used with a struct, got %s", err.T)
+}
+
+func newIError(cause error, i, t reflect.Type) error {
+	return &IError{T: t, I: i, cause: cause}
+}
+
+type IError struct {
+	cause error
+
+	I, T reflect.Type
+}
+
+func (err *IError) Error() string {
+	return fmt.Sprintf("tinysl.I[%s, %s] returned an error: %s", err.I, err.T, err.cause)
+}
+
+func (err *IError) Unwrap() error {
 	return err.cause
 }
 

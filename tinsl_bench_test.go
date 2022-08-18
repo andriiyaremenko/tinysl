@@ -16,7 +16,7 @@ func BenchmarkGetTransinet(b *testing.B) {
 	sl, _ := tinysl.Add(tinysl.Transient, nameServiceConstructor).ServiceLocator()
 
 	for i := 0; i < b.N; i++ {
-		_, _ = tinysl.Get[nameService](ctx, sl)
+		_, _ = tinysl.Get[NameService](ctx, sl)
 	}
 }
 
@@ -29,7 +29,7 @@ func BenchmarkGetPerContext(b *testing.B) {
 	sl, _ := tinysl.Add(tinysl.PerContext, nameServiceConstructor).ServiceLocator()
 
 	for i := 0; i < b.N; i++ {
-		_, _ = tinysl.Get[nameService](ctx, sl)
+		_, _ = tinysl.Get[NameService](ctx, sl)
 	}
 }
 
@@ -42,6 +42,6 @@ func BenchmarkGetSingleton(b *testing.B) {
 	sl, _ := tinysl.Add(tinysl.Singleton, nameServiceConstructor).ServiceLocator()
 
 	for i := 0; i < b.N; i++ {
-		_, _ = tinysl.Get[nameService](ctx, sl)
+		_, _ = tinysl.Get[NameService](ctx, sl)
 	}
 }

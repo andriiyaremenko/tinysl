@@ -27,9 +27,7 @@ type record struct {
 }
 
 func newContainer() *container {
-	return &container{
-		constructors: make(map[string]record),
-	}
+	return &container{constructors: make(map[string]record)}
 }
 
 type container struct {
@@ -44,8 +42,6 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 		return c
 	}
 
-	t := reflect.TypeOf(constructor)
-
 	if lifetime != Singleton &&
 		lifetime != PerContext &&
 		lifetime != Transient {
@@ -54,14 +50,50 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 		return c
 	}
 
+	// Check if constructor returns Constructor type
+	construct, ok := constructor.(func() (propertyFiller, error))
+	if ok {
+		constructor, err := construct()
+		if err != nil {
+			c.err = err
+
+			return c
+		}
+
+		t := constructor.Type
+		serviceType := t.String()
+		r := record{
+			typeName:     serviceType,
+			lifetime:     lifetime,
+			dependencies: constructor.Dependencies,
+			constructor:  constructor.NewInstance,
+		}
+
+		c.constructorsRWM.Lock()
+		defer c.constructorsRWM.Unlock()
+
+		if _, ok := c.constructors[serviceType]; ok {
+			c.err = newBadConstructorError(ErrDuplicateConstructor, t)
+
+			return c
+		}
+
+		c.constructors[serviceType] = r
+
+		return c
+	}
+
+	// Regular constructor
+	t := reflect.TypeOf(constructor)
+
 	if t.Kind() != reflect.Func {
-		c.err = NewConstructorUnsupportedError(t, lifetime)
+		c.err = newConstructorUnsupportedError(t, lifetime)
 
 		return c
 	}
 
 	if t.IsVariadic() {
-		c.err = NewBadConstructorError(ErrVariadicConstructor, t)
+		c.err = newBadConstructorError(ErrVariadicConstructor, t)
 
 		return c
 	}
@@ -70,21 +102,21 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 
 	// Singleton cannot be based on any context, but PerContext and Transient can
 	if lifetime == Singleton && numIn > 0 && t.In(0).Implements(contextInterface) {
-		c.err = NewConstructorUnsupportedError(t, lifetime)
+		c.err = newConstructorUnsupportedError(t, lifetime)
 
 		return c
 	}
 
 	numOut := t.NumOut()
 	if numOut != 2 {
-		c.err = NewConstructorUnsupportedError(t, lifetime)
+		c.err = newConstructorUnsupportedError(t, lifetime)
 
 		return c
 	}
 
 	errType := t.Out(1)
 	if !errType.Implements(errorInterface) {
-		c.err = NewConstructorUnsupportedError(t, lifetime)
+		c.err = newConstructorUnsupportedError(t, lifetime)
 
 		return c
 	}
@@ -94,7 +126,7 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 
 	serviceType := t.Out(0).String()
 	if _, ok := c.constructors[serviceType]; ok {
-		c.err = NewBadConstructorError(ErrDuplicateConstructor, t)
+		c.err = newBadConstructorError(ErrDuplicateConstructor, t)
 
 		return c
 	}
@@ -104,7 +136,7 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 	for i := 0; i < numIn; i++ {
 		argT := t.In(i)
 		if i > 0 && argT.Implements(contextInterface) {
-			c.err = NewConstructorUnsupportedError(t, lifetime)
+			c.err = newConstructorUnsupportedError(t, lifetime)
 
 			return c
 		}
@@ -150,7 +182,7 @@ func (c *container) canResolveDependencies(record record, dependentServiceNames 
 		if !ok {
 			return NewServiceBuilderError(
 				NewConstructorNotFoundError(dependency),
-                record.lifetime,
+				record.lifetime,
 				record.typeName,
 			)
 		}
@@ -158,7 +190,7 @@ func (c *container) canResolveDependencies(record record, dependentServiceNames 
 		if slices.Contains(dependentServiceNames, dependency) {
 			return NewServiceBuilderError(
 				NewCircularDependencyError(record.constructor, dependency),
-                record.lifetime,
+				record.lifetime,
 				record.typeName,
 			)
 		}

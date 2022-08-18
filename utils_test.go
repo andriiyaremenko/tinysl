@@ -7,47 +7,68 @@ import (
 	"time"
 )
 
-type nameService interface {
+type HelloService interface {
+	Hello() string
+}
+
+type ServiceWithPublicFields struct {
+	someProperty string
+	Dependency   NameService
+}
+
+func (s ServiceWithPublicFields) SomeProperty() string {
+	return s.someProperty
+}
+
+func (s *ServiceWithPublicFields) Hello() string {
+	return "Hello " + s.Dependency.Name()
+}
+
+func (s ServiceWithPublicFields) Name() string {
+	return s.Dependency.Name()
+}
+
+type NameService interface {
 	Name() string
 }
 
-type nameProvider string
+type NameProvider string
 
-func (s nameProvider) Name() string {
+func (s NameProvider) Name() string {
 	return string(s)
 }
 
-type tableTimer struct {
+type TableTimer struct {
 	ctx         context.Context
-	nameService nameService
+	nameService NameService
 }
 
-type impostor struct {
+type Impostor struct {
 	name string
-	hero *hero
+	hero *Hero
 }
 
-func (i *impostor) Disguise() {
-	i.hero = &hero{i.name}
+func (i *Impostor) Disguise() {
+	i.hero = &Hero{i.name}
 }
 
-func (i *impostor) Announce() string {
+func (i *Impostor) Announce() string {
 	return fmt.Sprintf("%s is our hero!", i.name)
 }
 
-func (i *impostor) Name() string {
+func (i *Impostor) Name() string {
 	return i.name
 }
 
-type hero struct {
+type Hero struct {
 	name string
 }
 
-func (h *hero) Announce() string {
+func (h *Hero) Announce() string {
 	return fmt.Sprintf("%s is our hero!", h.name)
 }
 
-func (c *tableTimer) Countdown(w io.Writer, seconds int) {
+func (c *TableTimer) Countdown(w io.Writer, seconds int) {
 	go func() {
 		total := time.Second * time.Duration(seconds)
 		ticker := time.NewTicker(time.Second)
@@ -56,12 +77,13 @@ func (c *tableTimer) Countdown(w io.Writer, seconds int) {
 			select {
 			case <-c.ctx.Done():
 				ticker.Stop()
-				w.Write([]byte("oops, looks like you broke it!"))
+				_, _ = w.Write([]byte("oops, looks like you broke it!"))
 
 				return
 			case <-ticker.C:
 				total -= time.Second
-				w.Write([]byte(fmt.Sprintf("%s have %d seconds left", c.nameService.Name(), total)))
+				_, _ = w.Write([]byte(fmt.Sprintf("%s have %d seconds left", c.nameService.Name(), total)))
+
 				if total == 0 {
 					ticker.Stop()
 
@@ -72,26 +94,26 @@ func (c *tableTimer) Countdown(w io.Writer, seconds int) {
 	}()
 }
 
-func nameProviderConstructor() (nameProvider, error) {
-	return nameProvider("Bob"), nil
+func nameProviderConstructor() (NameProvider, error) {
+	return NameProvider("Bob"), nil
 }
 
-func nameServiceConstructor() (nameService, error) {
-	return nameProvider("Bob"), nil
+func nameServiceConstructor() (NameService, error) {
+	return NameProvider("Bob"), nil
 }
 
-func tableTimerConstructor(ctx context.Context, nameService nameService) (*tableTimer, error) {
-	return &tableTimer{ctx, nameService}, nil
+func tableTimerConstructor(ctx context.Context, nameService NameService) (*TableTimer, error) {
+	return &TableTimer{ctx, nameService}, nil
 }
 
-func impostorConstructor(nameService nameService, hero *hero) (*impostor, error) {
-	return &impostor{name: nameService.Name(), hero: hero}, nil
+func impostorConstructor(nameService NameService, hero *Hero) (*Impostor, error) {
+	return &Impostor{name: nameService.Name(), hero: hero}, nil
 }
 
-func disguisedImpostorConstructor(impostor *impostor) (*hero, error) {
-	return &hero{name: impostor.Name()}, nil
+func disguisedImpostorConstructor(impostor *Impostor) (*Hero, error) {
+	return &Hero{name: impostor.Name()}, nil
 }
 
-func heroConstructor(nameService nameService) (*hero, error) {
-	return &hero{nameService.Name()}, nil
+func heroConstructor(nameService NameService) (*Hero, error) {
+	return &Hero{nameService.Name()}, nil
 }
