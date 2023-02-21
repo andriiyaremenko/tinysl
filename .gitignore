@@ -1,5 +1,5 @@
 *.swo
 *.swp
 tinysl
-.DS_Store
 cover.out
+coverprofile.out

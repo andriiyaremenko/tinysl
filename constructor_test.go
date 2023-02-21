@@ -3,10 +3,10 @@ package tinysl_test
 import (
 	"reflect"
 
+	"errors"
 	"github.com/andriiyaremenko/tinysl"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/pkg/errors"
 )
 
 var _ = Describe("Constructor", func() {

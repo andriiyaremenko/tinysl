@@ -2,10 +2,9 @@ package tinysl
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"sync"
-
-	"github.com/pkg/errors"
 )
 
 var _ ServiceLocator = new(locator)
@@ -46,7 +45,11 @@ func (l *locator) Get(ctx context.Context, serviceName string) (any, error) {
 	case Transient:
 		return l.get(ctx, record)
 	default:
-		panic(errors.Wrapf(LifetimeUnsupportedError(record.lifetime), "broken record %s", record.typeName))
+		panic(fmt.Errorf(
+			"broken record %s: %w",
+			record.typeName,
+			LifetimeUnsupportedError(record.lifetime)),
+		)
 	}
 }
 
