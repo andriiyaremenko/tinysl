@@ -3,8 +3,6 @@ package tinysl
 import (
 	"reflect"
 	"sync"
-
-	"golang.org/x/exp/slices"
 )
 
 var _ Container = new(container)
@@ -187,12 +185,14 @@ func (c *container) canResolveDependencies(record record, dependentServiceNames 
 			)
 		}
 
-		if slices.Contains(dependentServiceNames, dependency) {
-			return NewServiceBuilderError(
-				NewCircularDependencyError(record.constructor, dependency),
-				record.lifetime,
-				record.typeName,
-			)
+		for _, serviceName := range dependentServiceNames {
+			if serviceName == dependency {
+				return NewServiceBuilderError(
+					NewCircularDependencyError(record.constructor, dependency),
+					record.lifetime,
+					record.typeName,
+				)
+			}
 		}
 
 		if err := c.canResolveDependencies(r, dependentServiceNames...); err != nil {
