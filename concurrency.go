@@ -8,6 +8,10 @@ import (
 )
 
 func getPerContextKey(ctx context.Context, key string) string {
+	if key == "" {
+		return fmt.Sprintf("%p", ctx)
+	}
+
 	return fmt.Sprintf("%p::%s", ctx, key)
 }
 
@@ -72,7 +76,7 @@ func (ci *contextInstances) set(ctx context.Context, key string, value any) {
 func (ci *contextInstances) delete(ctx context.Context) {
 	ci.mu.Lock()
 
-	prefix := fmt.Sprintf("%p", ctx)
+	prefix := getPerContextKey(ctx, "")
 
 	for key := range ci.m {
 		if strings.HasPrefix(key, prefix) {
