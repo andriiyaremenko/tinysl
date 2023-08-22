@@ -15,7 +15,7 @@ func newLocator(constructors map[string]record) ServiceLocator {
 		singletons:   newInstances(),
 		perContext:   newContextInstances(),
 		sMu:          make(map[string]*sync.Mutex),
-		pcMu:         make(map[context.Context]map[string]*sync.Mutex),
+		pcMu:         make(map[string]*sync.Mutex),
 	}
 }
 
@@ -23,7 +23,7 @@ type locator struct {
 	sMuMu  sync.Mutex
 	pcMuMu sync.Mutex
 	sMu    map[string]*sync.Mutex
-	pcMu   map[context.Context]map[string]*sync.Mutex
+	pcMu   map[string]*sync.Mutex
 
 	singletons   *instances
 	perContext   *contextInstances
@@ -136,26 +136,26 @@ func (l *locator) getPerContext(ctx context.Context, record record, serviceName 
 	}
 
 	l.pcMuMu.Lock()
+	perContextKey := getPerContextKey(ctx, "")
 
-	if _, ok := l.pcMu[ctx]; !ok {
-		l.pcMu[ctx] = make(map[string]*sync.Mutex)
-
+	if _, ok := l.pcMu[perContextKey]; !ok {
 		go func() {
 			<-ctx.Done()
 			l.pcMuMu.Lock()
 
-			delete(l.pcMu, ctx)
+			delete(l.pcMu, perContextKey)
 			l.perContext.delete(ctx)
 
 			l.pcMuMu.Unlock()
 		}()
 	}
 
-	if _, ok := l.pcMu[ctx][serviceName]; !ok {
-		l.pcMu[ctx][serviceName] = new(sync.Mutex)
+	perContextServiceKey := getPerContextKey(ctx, serviceName)
+	if _, ok := l.pcMu[perContextServiceKey]; !ok {
+		l.pcMu[perContextServiceKey] = new(sync.Mutex)
 	}
 
-	mu := l.pcMu[ctx][serviceName]
+	mu := l.pcMu[perContextServiceKey]
 
 	l.pcMuMu.Unlock()
 
