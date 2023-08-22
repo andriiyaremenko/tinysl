@@ -20,6 +20,7 @@ func newLocator(constructors map[string]record) ServiceLocator {
 }
 
 type locator struct {
+	errRMu sync.RWMutex
 	sMuMu  sync.Mutex
 	pcMuMu sync.Mutex
 	sMu    map[string]*sync.Mutex
@@ -28,6 +29,27 @@ type locator struct {
 	singletons   *instances
 	perContext   *contextInstances
 	constructors map[string]record
+
+	err error
+}
+
+func (l *locator) EnsureAvailable(serviceName string) {
+	for key := range l.constructors {
+		if key == serviceName {
+			return
+		}
+	}
+
+	l.errRMu.Lock()
+	l.err = NewConstructorNotFoundError(serviceName)
+	l.errRMu.Unlock()
+}
+
+func (l *locator) Err() error {
+	l.errRMu.RLock()
+	defer l.errRMu.RUnlock()
+
+	return l.err
 }
 
 func (l *locator) Get(ctx context.Context, serviceName string) (any, error) {

@@ -445,4 +445,77 @@ var _ = Describe("ServiceLocator", func() {
 		Expect(service.Hello()).To(Equal("Hello Bob"))
 		Expect(service.(*ServiceWithPublicFields).SomeProperty()).To(BeEmpty())
 	})
+
+	It("should work with Prepare[T]", func() {
+		sl, err := tinysl.
+			Add(tinysl.Transient, nameServiceConstructor).
+			Add(tinysl.PerContext, tinysl.I[HelloService, ServiceWithPublicFields]).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		ctx := context.TODO()
+		ctx, cancel := context.WithCancel(ctx)
+
+		defer cancel()
+
+		lazy := tinysl.Prepare[HelloService](sl)
+		service := lazy(ctx)
+
+		Expect(sl.Err()).ShouldNot(HaveOccurred())
+		Expect(service.Hello()).To(Equal("Hello Bob"))
+	})
+
+	It("should report error after Prepare[T]", func() {
+		sl, err := tinysl.
+			Add(tinysl.Transient, nameServiceConstructor).
+			Add(tinysl.PerContext, tinysl.I[HelloService, ServiceWithPublicFields]).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		ctx := context.TODO()
+		ctx, cancel := context.WithCancel(ctx)
+
+		defer cancel()
+
+		lazy := tinysl.Prepare[*Hero](sl)
+
+		Expect(sl.Err()).Should(HaveOccurred())
+		Expect(sl.Err()).To(BeAssignableToTypeOf(&tinysl.ConstructorNotFoundError{}))
+		Expect(func() { lazy(ctx) }).To(Panic())
+	})
+
+	It("should work with MustGet", func() {
+		sl, err := tinysl.
+			Add(tinysl.Transient, nameServiceConstructor).
+			Add(tinysl.PerContext, tinysl.I[HelloService, ServiceWithPublicFields]).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		ctx := context.TODO()
+		ctx, cancel := context.WithCancel(ctx)
+
+		defer cancel()
+
+		service := tinysl.MustGet[HelloService](ctx, sl)
+		Expect(service.Hello()).To(Equal("Hello Bob"))
+	})
+
+	It("should panic with MustGet if constructor not found", func() {
+		sl, err := tinysl.
+			Add(tinysl.Transient, nameServiceConstructor).
+			Add(tinysl.PerContext, tinysl.I[HelloService, ServiceWithPublicFields]).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		ctx := context.TODO()
+		ctx, cancel := context.WithCancel(ctx)
+
+		defer cancel()
+
+		Expect(func() { tinysl.MustGet[*Hero](ctx, sl) }).To(Panic())
+	})
 })

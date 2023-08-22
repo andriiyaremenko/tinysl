@@ -55,7 +55,28 @@ func MyRequestHandler(w http.ResponseWriter, req *http.Request) {
 
 	// use service
 }
+
+// or:
+func GetMyRequestHandler(lazy tinysl.Lazy[YourService]) {
+	func (w http.ResponseWriter, req *http.Request) {
+		service := lazy(req.Context()
+
+		// use service
+	}
+}
+
+lazy := tinysl.Prepare[YourService](sl)
+if err := sl.Err(); err != nil {
+	// handle error
+}
+GetMyRequestHandler(lazy)
 ```
+### Functions:
+ * `tinysl.New`
+ * `tinysl.Add`
+ * `tinysl.Get`
+ * `tinysl.MustGet`
+ * `tinysl.Prepare`
 
 ### Lifetime constants:
  * `tinysl.PerContext`
@@ -69,4 +90,4 @@ func MyRequestHandler(w http.ResponseWriter, req *http.Request) {
 ### Public fields constructor
  * `tinysl.T[Type]` - would return `Type` instance with filled public fields using registered constructors.
  * `tinysl.P[Type]` - would return `*Type` instance with filled public fields using registered constructors.
- * 	`tinysl.I[Interface, Type]` - would return `Interface` implemented by `*Type` instance with filled public fields using registered constructors.
+ * `tinysl.I[Interface, Type]` - would return `Interface` implemented by `*Type` instance with filled public fields using registered constructors.
