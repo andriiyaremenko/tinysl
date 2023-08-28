@@ -74,6 +74,7 @@ Functions:
   - tinysl.Get
   - tinysl.MustGet
   - tinysl.Prepare
+  - tinysl.DecorateHandler
 
 Lifetime constants:
 
