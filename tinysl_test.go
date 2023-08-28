@@ -126,6 +126,8 @@ var _ = Describe("Functions", func() {
 			hello := string(b)
 
 			Expect(hello).To(Equal("Hello Bob"))
+
+			server.Close()
 		})
 
 		It("should report error", func() {
