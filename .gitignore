@@ -2,4 +2,5 @@
 *.swp
 tinysl
 cover.out
+cover.cov
 coverprofile.out

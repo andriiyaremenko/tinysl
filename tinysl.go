@@ -2,6 +2,7 @@ package tinysl
 
 import (
 	"context"
+	"net/http"
 	"reflect"
 )
 
@@ -40,6 +41,27 @@ func MustGet[T any](ctx context.Context, sl ServiceLocator) T {
 	return s
 }
 
+// Your HTTP handler function decorator.
+// Registers an error if no constructor was found with ServiceLocator
+// which should be checked with ServiceLocator.Err().
+func DecorateHandler[T any](sl ServiceLocator, fn func(T) http.Handler) http.Handler {
+	serviceType := reflect.TypeOf(new(T))
+	serviceName := serviceType.Elem().String()
+
+	sl.EnsureAvailable(serviceName)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		s, err := sl.Get(ctx, serviceName)
+		if err != nil {
+			panic(err)
+		}
+
+		fn(s.(T)).ServeHTTP(w, r)
+	})
+}
+
 // Returns lazy initialization of service registered in ServiceLocator.
 // Registers an error if no constructor was found with ServiceLocator
 // which should be checked with ServiceLocator.Err().
@@ -59,8 +81,8 @@ func Prepare[T any](sl ServiceLocator) Lazy[T] {
 	}
 }
 
-// Lazy initialization of service.
-// Will panic if error during initialization occurs.
+// Lazy initialized service.
+// Will panic if error occured during initialization.
 type Lazy[T any] func(context.Context) T
 
 // Container keeps services constructors and lifetime scopes.
