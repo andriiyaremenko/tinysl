@@ -9,7 +9,7 @@ on:
 jobs:
 
   build:
-    runs-on: linux-latest
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
 
@@ -19,10 +19,13 @@ jobs:
         go-version: 1.23
 
     - name: Build
+      uses: actions/setup-go@v5
       run: go build -v ./...
 
     - name: Test
+      uses: actions/setup-go@v5
       run: go test -race --cover
 
     - name: Bench
+      uses: actions/setup-go@v5
       run: go test -benchmem -bench=. ./...
