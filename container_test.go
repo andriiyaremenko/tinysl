@@ -2,9 +2,9 @@ package tinysl_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 
-	"errors"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -19,7 +19,7 @@ var _ = Describe("Container", func() {
 
 	It("should refuse register Singleton constructor dependant on context.Context", func() {
 		_, err := tinysl.
-			Add(tinysl.Singleton, nameServiceConstructor).
+			Add(tinysl.PerContext, nameServiceConstructor).
 			Add(tinysl.Singleton, tableTimerConstructor).
 			ServiceLocator()
 
@@ -36,7 +36,7 @@ var _ = Describe("Container", func() {
 	It("should register PerContext constructor dependant on context.Context", func() {
 		_, err := tinysl.
 			Add(tinysl.PerContext, tableTimerConstructor).
-			Add(tinysl.Singleton, nameServiceConstructor).
+			Add(tinysl.PerContext, nameServiceConstructor).
 			ServiceLocator()
 		Expect(err).ShouldNot(HaveOccurred())
 	})
@@ -49,7 +49,23 @@ var _ = Describe("Container", func() {
 	It("should register Transient constructor dependant on context.Context", func() {
 		_, err := tinysl.
 			Add(tinysl.Transient, tableTimerConstructor).
-			Add(tinysl.Singleton, nameServiceConstructor).
+			Add(tinysl.PerContext, nameServiceConstructor).
+			ServiceLocator()
+		Expect(err).ShouldNot(HaveOccurred())
+	})
+
+	It("should allow constructor without error", func() {
+		_, err := tinysl.
+			Add(tinysl.Singleton, func() NameProvider { return NameProvider("Bob") }).
+			ServiceLocator()
+		Expect(err).ShouldNot(HaveOccurred())
+	})
+
+	It("should allow constructor with cleanup function", func() {
+		_, err := tinysl.
+			Add(tinysl.Singleton,
+				func() (NameProvider, tinysl.Cleanup, error) { return NameProvider("Bob"), func() {}, nil },
+			).
 			ServiceLocator()
 		Expect(err).ShouldNot(HaveOccurred())
 	})
@@ -93,14 +109,14 @@ var _ = Describe("Container", func() {
 
 		wg.Add(1)
 		go func() {
-			_ = sl.Add(tinysl.Transient, nameServiceConstructor)
+			_ = sl.Add(tinysl.PerContext, nameServiceConstructor)
 
 			wg.Done()
 		}()
 
 		wg.Add(1)
 		go func() {
-			_ = sl.Add(tinysl.Transient, nameServiceConstructor)
+			_ = sl.Add(tinysl.PerContext, nameServiceConstructor)
 
 			wg.Done()
 		}()
@@ -137,7 +153,7 @@ var _ = Describe("Container", func() {
 
 	It("should return error for unsupported lifetime", func() {
 		_, err := tinysl.
-			Add("MyCustomLifetime", nameServiceConstructor).
+			Add(4, nameServiceConstructor).
 			ServiceLocator()
 
 		Expect(err).Should(HaveOccurred())
@@ -146,7 +162,7 @@ var _ = Describe("Container", func() {
 
 	It("should return error for wrong constructor type", func() {
 		_, err := tinysl.
-			Add(tinysl.Transient, "jsut random human made mistake").
+			Add(tinysl.Transient, "just random human made mistake").
 			ServiceLocator()
 
 		Expect(err).Should(HaveOccurred())
@@ -163,6 +179,22 @@ var _ = Describe("Container", func() {
 			return 0, false
 		}
 
+		badConstructor3 := func() (int, bool, error) {
+			return 0, false, nil
+		}
+
+		badConstructor4 := func() (int, tinysl.Cleanup, bool) {
+			return 0, func() {}, false
+		}
+
+		badConstructor5 := func() (int, error, tinysl.Cleanup) {
+			return 0, nil, func() {}
+		}
+
+		badConstructor6 := func() (int, bool, tinysl.Cleanup, error) {
+			return 0, false, func() {}, nil
+		}
+
 		_, err := tinysl.
 			Add(tinysl.Transient, badConstructor1).
 			ServiceLocator()
@@ -173,6 +205,38 @@ var _ = Describe("Container", func() {
 
 		_, err = tinysl.
 			Add(tinysl.Transient, badConstructor2).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.BadConstructorError)))
+		Expect(errors.Unwrap(err)).Should(BeAssignableToTypeOf(new(tinysl.ConstructorTemplateError)))
+
+		_, err = tinysl.
+			Add(tinysl.Transient, badConstructor3).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.BadConstructorError)))
+		Expect(errors.Unwrap(err)).Should(BeAssignableToTypeOf(new(tinysl.ConstructorTemplateError)))
+
+		_, err = tinysl.
+			Add(tinysl.Transient, badConstructor4).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.BadConstructorError)))
+		Expect(errors.Unwrap(err)).Should(BeAssignableToTypeOf(new(tinysl.ConstructorTemplateError)))
+
+		_, err = tinysl.
+			Add(tinysl.Transient, badConstructor5).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.BadConstructorError)))
+		Expect(errors.Unwrap(err)).Should(BeAssignableToTypeOf(new(tinysl.ConstructorTemplateError)))
+
+		_, err = tinysl.
+			Add(tinysl.Transient, badConstructor6).
 			ServiceLocator()
 
 		Expect(err).Should(HaveOccurred())
@@ -195,10 +259,50 @@ var _ = Describe("Container", func() {
 		Expect(errors.Unwrap(err)).Should(BeAssignableToTypeOf(new(tinysl.ConstructorTemplateError)))
 	})
 
+	It("should return error for constructor if dependency tree does not respect lifetime hierarchy", func() {
+		_, err := tinysl.
+			Add(tinysl.PerContext, tableTimerConstructor).
+			Add(tinysl.Transient, nameServiceConstructor).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.ServiceBuilderError)))
+		Expect(errors.Unwrap(err)).Should(BeAssignableToTypeOf(new(tinysl.ScopeHierarchyError)))
+	})
+
+	It("should return error for constructor if service can be made Singleton", func() {
+		_, err := tinysl.
+			Add(tinysl.PerContext, tableTimerConstructor).
+			Add(tinysl.Singleton, nameServiceConstructor).
+			ServiceLocator()
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.ServiceBuilderError)))
+		Expect(errors.Unwrap(err)).Should(MatchError(tinysl.ErrShouldBeSingleton))
+	})
+
+	It("should ignore scope analyzer errors if said so", func() {
+		_, err := tinysl.
+			Add(tinysl.PerContext, tableTimerConstructor).
+			Add(tinysl.Singleton, nameServiceConstructor).
+			IgnoreScopeAnalyzerErrors().
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		_, err = tinysl.
+			Add(tinysl.PerContext, tableTimerConstructor).
+			Add(tinysl.Transient, nameServiceConstructor).
+			IgnoreScopeAnalyzerErrors().
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+	})
+
 	It("should return first encountered error", func() {
 		_, err := tinysl.
-			Add(tinysl.Transient, "jsut random human made mistake").
-			Add("MyCustomLifetime", nameServiceConstructor).
+			Add(tinysl.Transient, "just random human made mistake").
+			Add(4, nameServiceConstructor).
 			ServiceLocator()
 
 		Expect(err).Should(HaveOccurred())

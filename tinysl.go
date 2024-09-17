@@ -2,30 +2,68 @@ package tinysl
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"reflect"
 )
 
-var (
+const (
 	// For Transient service new instance is returned.
-	Transient Lifetime = "Transient"
+	//
+	// Deprecated: Transient should be almost never be used
+	// and in cornere cases when it is needed it can be easily replaced with PerContext lifetime
+	Transient Lifetime = iota - 1
 	// For PerContext service same instance is returned for same context.Context.
-	PerContext Lifetime = "PerContext"
+	PerContext
 	// For Singleton service same instance is returned always.
-	Singleton Lifetime = "Singleton"
+	Singleton
 )
 
-type Lifetime string
+func (l Lifetime) String() string {
+	switch l {
+	case Transient:
+		return "Transient"
+	case PerContext:
+		return "PerContext"
+	case Singleton:
+		return "Singleton"
+	default:
+		return "Unsupported"
+	}
+}
+
+type Lifetime int
+
+type Cleanup func()
+
+type ErrorLogger interface {
+	Error(msg string, args ...any)
+}
+
+var DefaultErrorLogger ErrorLogger = slog.Default()
+
+func SetDefaultErrorLogger(l ErrorLogger) {
+	DefaultErrorLogger = l
+}
+
+type ServiceLocatorBuilder interface {
+	// Returns ServiceLocator or error.
+	ServiceLocator() (sl ServiceLocator, err error)
+}
+
+type ScopeAnalyzer interface {
+	IgnoreScopeAnalyzerErrors() ServiceLocatorBuilder
+}
 
 // Container keeps services constructors and lifetime scopes.
 type Container interface {
+	ServiceLocatorBuilder
+	ScopeAnalyzer
 	// Adds constructor of service with lifetime scope.
 	// For Singleton constructor should be of type func(T1, T2, ...) (T, error),
 	// for Transient and PerContext constructor should be of type func(context.Context, T1, T2, ...),
 	// where T is exact type of service.
 	Add(lifetime Lifetime, constructor any) Container
-	// Returns ServiceLocator or error.
-	ServiceLocator() (sl ServiceLocator, err error)
 }
 
 // ServiceLocator allows fetching service using its type name.
@@ -85,7 +123,7 @@ func DecorateHandler[T any](sl ServiceLocator, fn func(T) http.Handler) http.Han
 }
 
 // Lazy initialized service.
-// Will panic if error occured during initialization.
+// Will panic if error occurred during initialization.
 type Lazy[T any] func(context.Context) T
 
 // Returns lazy initialization of service registered in ServiceLocator.

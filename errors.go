@@ -4,15 +4,13 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-
-	"errors"
 )
 
 const (
 	contextDepName = "context.Context"
 
-	constructorTypeStr            string = "func(T1, T2, ...) (T, error)"
-	constructorWithContextTypeStr string = "func(context.Context, T1, T2, ...) (T, error)"
+	constructorTypeStr            string = "func(T1, T2, ...) [T|(T, error)|(T, func(), error)]"
+	constructorWithContextTypeStr string = "func(context.Context, T1, T2, ...) [T|(T, error)|(T, func(), error)]"
 
 	singletonPossibleConstructor  string = constructorTypeStr
 	perContextPossibleConstructor string = constructorTypeStr + " | " + constructorWithContextTypeStr
@@ -21,14 +19,16 @@ const (
 
 var (
 	errorInterface   = reflect.TypeOf((*error)(nil)).Elem()
+	cleanUpType      = reflect.TypeOf((*func())(nil)).Elem()
 	contextInterface = reflect.TypeOf((*context.Context)(nil)).Elem()
 
-	ErrVariadicConstructor  = errors.New("variadic constructor is not supported")
-	ErrDuplicateConstructor = errors.New("ServiceLocator has already registered constructor for this type")
-	ErrNilContext           = errors.New("got nil context")
-	ErrIWrongTType          = errors.New("I can be used only with T as a struct")
-	ErrIWrongIType          = errors.New("I can be used only with I as an interface")
-	ErrITDoesNotImplementI  = errors.New("I can only be used with T if T or *T implements I")
+	ErrVariadicConstructor  = fmt.Errorf("variadic constructor is not supported")
+	ErrDuplicateConstructor = fmt.Errorf("ServiceLocator has already registered constructor for this type")
+	ErrNilContext           = fmt.Errorf("got nil context")
+	ErrIWrongTType          = fmt.Errorf("I can be used only with T as a struct")
+	ErrIWrongIType          = fmt.Errorf("I can be used only with I as an interface")
+	ErrITDoesNotImplementI  = fmt.Errorf("I can only be used with T if T or *T implements I")
+	ErrShouldBeSingleton    = fmt.Errorf("should be singleton")
 )
 
 func newConstructorUnsupportedError(constructorType reflect.Type, lifetime Lifetime) error {
@@ -58,7 +58,7 @@ func newConstructorUnsupportedError(constructorType reflect.Type, lifetime Lifet
 			constructorType,
 		)
 	default:
-		return LifetimeUnsupportedError(lifetime)
+		return LifetimeUnsupportedError(lifetime.String())
 	}
 }
 
@@ -123,8 +123,8 @@ func (err *IError) Unwrap() error {
 }
 
 type ConstructorTemplateError struct {
-	Lifetime                      Lifetime
 	SupportedConstructorTemplates string
+	Lifetime                      Lifetime
 }
 
 func (err *ConstructorTemplateError) Error() string {
@@ -135,7 +135,7 @@ func (err *ConstructorTemplateError) Error() string {
 	)
 }
 
-func NewConstructorNotFoundError(typeName string) error {
+func newConstructorNotFoundError(typeName string) error {
 	return &ConstructorNotFoundError{
 		TypeName: typeName,
 	}
@@ -149,7 +149,7 @@ func (err *ConstructorNotFoundError) Error() string {
 	return fmt.Sprintf("%s constructor not found", err.TypeName)
 }
 
-func NewCircularDependencyError(constructor any, dependency string) error {
+func newCircularDependencyError(constructor any, dependency string) error {
 	return &CircularDependencyError{
 		Dependency:  dependency,
 		Constructor: constructor,
@@ -157,15 +157,32 @@ func NewCircularDependencyError(constructor any, dependency string) error {
 }
 
 type CircularDependencyError struct {
-	Dependency  string
 	Constructor any
+	Dependency  string
 }
 
 func (err *CircularDependencyError) Error() string {
 	return fmt.Sprintf("%s in %T is dependant on returned type", err.Dependency, err.Constructor)
 }
 
-func NewServiceBuilderError(cause error, lifetime Lifetime, typeName string) error {
+func newScopeHierarchyError(rec, dep record) error {
+	return &ScopeHierarchyError{DepServiceName: rec.typeName, DepLifetime: dep.lifetime}
+}
+
+type ScopeHierarchyError struct {
+	DepServiceName string
+	DepLifetime    Lifetime
+}
+
+func (err *ScopeHierarchyError) Error() string {
+	return fmt.Sprintf(
+		"dependency on %s %s violates scope hierarchy",
+		err.DepServiceName,
+		err.DepLifetime,
+	)
+}
+
+func newServiceBuilderError(cause error, lifetime Lifetime, typeName string) error {
 	return &ServiceBuilderError{
 		cause:    cause,
 		Lifetime: lifetime,
@@ -175,8 +192,8 @@ func NewServiceBuilderError(cause error, lifetime Lifetime, typeName string) err
 
 type ServiceBuilderError struct {
 	cause    error
-	Lifetime Lifetime
 	TypeName string
+	Lifetime Lifetime
 }
 
 func (err *ServiceBuilderError) Error() string {
@@ -187,7 +204,7 @@ func (err *ServiceBuilderError) Unwrap() error {
 	return err.cause
 }
 
-func NewConstructorError(cause error) error {
+func newConstructorError(cause error) error {
 	return &ConstructorError{
 		cause: cause,
 	}
@@ -205,7 +222,7 @@ func (err *ConstructorError) Unwrap() error {
 	return err.cause
 }
 
-func NewUnexpectedResultError(values []reflect.Value) error {
+func newUnexpectedResultError(values []reflect.Value) error {
 	return &UnexpectedResultError{
 		Result: values,
 	}

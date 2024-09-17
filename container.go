@@ -1,15 +1,46 @@
 package tinysl
 
 import (
+	"context"
 	"reflect"
+	"runtime"
 	"sync"
 )
 
 var _ Container = new(container)
 
+type ContainerConfiguration struct {
+	Ctx            context.Context
+	WorkerPoolSize uint
+}
+
+type ContainerOption func(*ContainerConfiguration)
+
+var (
+	WithWorkerPoolSize = func(size uint) ContainerOption {
+		return func(opt *ContainerConfiguration) {
+			if size > 0 {
+				opt.WorkerPoolSize = size
+			}
+		}
+	}
+	WithSingletonCleanupContext = func(ctx context.Context) ContainerOption {
+		return func(opt *ContainerConfiguration) { opt.Ctx = ctx }
+	}
+)
+
 // Returns new Container.
-func New() Container {
-	return newContainer()
+func New(opts ...ContainerOption) Container {
+	conf := ContainerConfiguration{
+		Ctx:            context.Background(),
+		WorkerPoolSize: uint(runtime.NumCPU()),
+	}
+
+	for _, opt := range opts {
+		opt(&conf)
+	}
+
+	return newContainer(conf.Ctx, conf.WorkerPoolSize)
 }
 
 // Creates new Container, adds constructor and returns newly-created container.
@@ -17,22 +48,40 @@ func Add(lifetime Lifetime, constructor any) Container {
 	return New().Add(lifetime, constructor)
 }
 
+type constructorType int
+
+const (
+	onlyService constructorType = iota
+	withError
+	withErrorAndCleanUp
+)
+
 type record struct {
-	lifetime     Lifetime
-	constructor  any
-	dependencies []string
-	typeName     string
+	constructor      any
+	typeName         string
+	dependencies     []string
+	constructorType  constructorType
+	lifetime         Lifetime
+	dependsOnContext bool
 }
 
-func newContainer() *container {
-	return &container{constructors: make(map[string]record)}
+func newContainer(ctx context.Context, workerPoolSize uint) *container {
+	return &container{constructors: make(map[string]record), ctx: ctx, workerPoolSize: workerPoolSize}
 }
 
 type container struct {
-	constructorsRWM sync.RWMutex
+	ctx                       context.Context
+	err                       error
+	constructors              map[string]record
+	constructorsRWM           sync.RWMutex
+	workerPoolSize            uint
+	ignoreScopeAnalyzerErrors bool
+}
 
-	err          error
-	constructors map[string]record
+// IgnoreScopeAnalyzerErrors implements Container.
+func (c *container) IgnoreScopeAnalyzerErrors() ServiceLocatorBuilder {
+	c.ignoreScopeAnalyzerErrors = true
+	return c
 }
 
 func (c *container) Add(lifetime Lifetime, constructor any) Container {
@@ -43,7 +92,7 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 	if lifetime != Singleton &&
 		lifetime != PerContext &&
 		lifetime != Transient {
-		c.err = LifetimeUnsupportedError(lifetime)
+		c.err = LifetimeUnsupportedError(lifetime.String())
 
 		return c
 	}
@@ -61,10 +110,11 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 		t := constructor.Type
 		serviceType := t.String()
 		r := record{
-			typeName:     serviceType,
-			lifetime:     lifetime,
-			dependencies: constructor.Dependencies,
-			constructor:  constructor.NewInstance,
+			constructorType: withError,
+			typeName:        serviceType,
+			lifetime:        lifetime,
+			dependencies:    constructor.Dependencies,
+			constructor:     constructor.NewInstance,
 		}
 
 		c.constructorsRWM.Lock()
@@ -105,15 +155,37 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 		return c
 	}
 
-	numOut := t.NumOut()
-	if numOut != 2 {
-		c.err = newConstructorUnsupportedError(t, lifetime)
+	cType := onlyService
+	switch t.NumOut() {
+	case 1:
+		if out := t.Out(0); out.Implements(errorInterface) {
+			c.err = newConstructorUnsupportedError(t, lifetime)
 
-		return c
-	}
+			return c
+		}
+	case 2:
+		cType = withError
 
-	errType := t.Out(1)
-	if !errType.Implements(errorInterface) {
+		if errType := t.Out(1); !errType.Implements(errorInterface) {
+			c.err = newConstructorUnsupportedError(t, lifetime)
+
+			return c
+		}
+	case 3:
+		cType = withErrorAndCleanUp
+
+		if cleanupType := t.Out(1); !cleanupType.AssignableTo(cleanUpType) {
+			c.err = newConstructorUnsupportedError(t, lifetime)
+
+			return c
+		}
+
+		if errType := t.Out(2); !errType.Implements(errorInterface) {
+			c.err = newConstructorUnsupportedError(t, lifetime)
+
+			return c
+		}
+	default:
 		c.err = newConstructorUnsupportedError(t, lifetime)
 
 		return c
@@ -129,7 +201,12 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 		return c
 	}
 
-	r := record{lifetime: lifetime, constructor: constructor, typeName: serviceType}
+	r := record{
+		constructorType: cType,
+		lifetime:        lifetime,
+		constructor:     constructor,
+		typeName:        serviceType,
+	}
 
 	for i := 0; i < numIn; i++ {
 		argT := t.In(i)
@@ -141,6 +218,8 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 
 		if argT.Implements(contextInterface) {
 			r.dependencies = append(r.dependencies, contextDepName)
+			r.dependsOnContext = true
+
 			continue
 		}
 
@@ -161,16 +240,27 @@ func (c *container) ServiceLocator() (ServiceLocator, error) {
 	}
 
 	for _, record := range c.constructors {
-		if err := c.canResolveDependencies(record); err != nil {
+		shouldBeSingleton, err := c.canResolveDependencies(record)
+		if err != nil {
 			return nil, err
+		}
+
+		if !c.ignoreScopeAnalyzerErrors && shouldBeSingleton {
+			return nil, newServiceBuilderError(
+				ErrShouldBeSingleton,
+				record.lifetime,
+				record.typeName,
+			)
 		}
 	}
 
-	return newLocator(c.constructors), nil
+	return newLocator(c.ctx, c.constructors, c.workerPoolSize), nil
 }
 
-func (c *container) canResolveDependencies(record record, dependentServiceNames ...string) error {
+func (c *container) canResolveDependencies(record record, dependentServiceNames ...string) (bool, error) {
 	dependentServiceNames = append(dependentServiceNames, record.typeName)
+	shouldBeSingleton := record.lifetime < Singleton && record.dependsOnContext
+
 	for _, dependency := range record.dependencies {
 		if dependency == contextDepName {
 			continue
@@ -178,27 +268,40 @@ func (c *container) canResolveDependencies(record record, dependentServiceNames 
 
 		r, ok := c.constructors[dependency]
 		if !ok {
-			return NewServiceBuilderError(
-				NewConstructorNotFoundError(dependency),
+			return false, newServiceBuilderError(
+				newConstructorNotFoundError(dependency),
 				record.lifetime,
 				record.typeName,
 			)
 		}
 
+		if !c.ignoreScopeAnalyzerErrors && record.lifetime > r.lifetime {
+			return false, newServiceBuilderError(
+				newScopeHierarchyError(record, r),
+				record.lifetime,
+				record.typeName,
+			)
+		}
+
+		if shouldBeSingleton {
+			shouldBeSingleton = r.lifetime == Singleton
+		}
+
 		for _, serviceName := range dependentServiceNames {
 			if serviceName == dependency {
-				return NewServiceBuilderError(
-					NewCircularDependencyError(record.constructor, dependency),
+				return false, newServiceBuilderError(
+					newCircularDependencyError(record.constructor, dependency),
 					record.lifetime,
 					record.typeName,
 				)
 			}
 		}
 
-		if err := c.canResolveDependencies(r, dependentServiceNames...); err != nil {
-			return err
+		_, err := c.canResolveDependencies(r, dependentServiceNames...)
+		if err != nil {
+			return false, err
 		}
 	}
 
-	return nil
+	return shouldBeSingleton, nil
 }

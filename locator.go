@@ -3,34 +3,163 @@ package tinysl
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/signal"
 	"reflect"
 	"sync"
+	"syscall"
 )
 
 var _ ServiceLocator = new(locator)
 
-func newLocator(constructors map[string]record) ServiceLocator {
+type cleanupRecord struct {
+	ctx context.Context
+	fn  Cleanup
+}
+
+// worker to handle singletons cleanup before application exit
+func singletonCleanupWorker(
+	ctx context.Context, cancel context.CancelFunc,
+	singletonsCleanupCh <-chan Cleanup, wg *sync.WaitGroup,
+) {
+	var cleanup Cleanup = func() {}
+
+loop:
+	for {
+		select {
+		case fn := <-singletonsCleanupCh:
+			oldFn := cleanup
+			cleanup = func() {
+				defer func() {
+					if rp := recover(); rp != nil {
+						DefaultErrorLogger.Error(fmt.Errorf("cleanup Singleton: recovered from panic: %v", rp).Error())
+					}
+				}()
+				oldFn()
+				fn()
+			}
+		case <-ctx.Done():
+			cleanup()
+			break loop
+		}
+	}
+
+	wg.Wait()
+	cancel()
+}
+
+// worker to handle per-context cleanups
+func perContextCleanupWorker(ctx context.Context, perContextCleanupCh <-chan cleanupRecord, wg *sync.WaitGroup) {
+	cleanups := make(map[string]Cleanup)
+	ctxList := []context.Context{}
+	nextCtx := context.Background()
+	replaceNextContext := true
+loop:
+	for {
+		select {
+		case <-ctx.Done():
+			break loop
+		default:
+		}
+
+		select {
+		case rec := <-perContextCleanupCh:
+			key := getPerContextKey(rec.ctx, "")
+			fn, ok := cleanups[key]
+
+			if ok {
+				oldFn := fn
+				fn = func() {
+					defer func() {
+						if rp := recover(); rp != nil {
+							DefaultErrorLogger.Error(fmt.Errorf("cleanup PerContext: recovered from panic: %v", rp).Error())
+						}
+					}()
+					oldFn()
+					rec.fn()
+				}
+			} else {
+				fn = func() {
+					defer func() {
+						if rp := recover(); rp != nil {
+							DefaultErrorLogger.Error(fmt.Errorf("cleanup PerContext: recovered from panic: %v", rp).Error())
+						}
+					}()
+					rec.fn()
+				}
+			}
+
+			cleanups[key] = fn
+
+			if replaceNextContext {
+				nextCtx = rec.ctx
+				replaceNextContext = false
+			}
+
+			ctxList = append(ctxList, rec.ctx)
+		case <-nextCtx.Done():
+			key := getPerContextKey(nextCtx, "")
+			if fn, ok := cleanups[key]; ok {
+				fn()
+			}
+
+			delete(cleanups, key)
+
+			if len(ctxList) == 0 {
+				nextCtx = context.Background()
+				replaceNextContext = true
+			} else {
+				nextCtx = ctxList[0]
+				ctxList = ctxList[1:]
+			}
+		case <-ctx.Done():
+			break loop
+		}
+	}
+
+	for _, fn := range cleanups {
+		fn()
+	}
+
+	wg.Done()
+}
+
+func newLocator(ctx context.Context, constructors map[string]record, size uint) ServiceLocator {
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+	singletonsCleanupCh := make(chan Cleanup)
+	perContextCleanupCh := make(chan cleanupRecord)
+	var wg sync.WaitGroup
+
+	go singletonCleanupWorker(ctx, cancel, singletonsCleanupCh, &wg)
+
+	for i := uint(0); i < size; i++ {
+		wg.Add(1)
+		go perContextCleanupWorker(ctx, perContextCleanupCh, &wg)
+	}
+
 	return &locator{
-		constructors: constructors,
-		singletons:   newInstances(),
-		perContext:   newContextInstances(),
-		sMu:          make(map[string]*sync.Mutex),
-		pcMu:         make(map[string]*sync.Mutex),
+		constructors:        constructors,
+		singletons:          newInstances(),
+		perContext:          newContextInstances(),
+		sMu:                 make(map[string]*sync.Mutex),
+		pcMu:                make(map[string]*sync.Mutex),
+		singletonsCleanupCh: singletonsCleanupCh,
+		perContextCleanUpCh: perContextCleanupCh,
 	}
 }
 
 type locator struct {
-	errRMu sync.RWMutex
-	sMuMu  sync.Mutex
-	pcMuMu sync.Mutex
-	sMu    map[string]*sync.Mutex
-	pcMu   map[string]*sync.Mutex
-
-	singletons   *instances
-	perContext   *contextInstances
-	constructors map[string]record
-
-	err error
+	err                 error
+	sMu                 map[string]*sync.Mutex
+	pcMu                map[string]*sync.Mutex
+	singletons          *instances
+	perContext          *contextInstances
+	constructors        map[string]record
+	singletonsCleanupCh chan<- Cleanup
+	perContextCleanUpCh chan<- cleanupRecord
+	errRMu              sync.RWMutex
+	sMuMu               sync.Mutex
+	pcMuMu              sync.Mutex
 }
 
 func (l *locator) EnsureAvailable(serviceName string) {
@@ -41,7 +170,7 @@ func (l *locator) EnsureAvailable(serviceName string) {
 	}
 
 	l.errRMu.Lock()
-	l.err = NewConstructorNotFoundError(serviceName)
+	l.err = newConstructorNotFoundError(serviceName)
 	l.errRMu.Unlock()
 }
 
@@ -56,7 +185,7 @@ func (l *locator) Get(ctx context.Context, serviceName string) (any, error) {
 	record, ok := l.constructors[serviceName]
 
 	if !ok {
-		return nil, NewConstructorNotFoundError(serviceName)
+		return nil, newConstructorNotFoundError(serviceName)
 	}
 
 	switch record.lifetime {
@@ -65,17 +194,28 @@ func (l *locator) Get(ctx context.Context, serviceName string) (any, error) {
 	case PerContext:
 		return l.getPerContext(ctx, record, serviceName)
 	case Transient:
-		return l.get(ctx, record)
+		s, _, err := l.get(ctx, record)
+		return s, err
 	default:
 		panic(fmt.Errorf(
 			"broken record %s: %w",
 			record.typeName,
-			LifetimeUnsupportedError(record.lifetime)),
+			LifetimeUnsupportedError(record.lifetime.String())),
 		)
 	}
 }
 
-func (l *locator) get(ctx context.Context, record record) (any, error) {
+func (l *locator) get(ctx context.Context, record record) (service any, cleanup Cleanup, err error) {
+	defer func() {
+		if rp := recover(); rp != nil {
+			err = newServiceBuilderError(
+				newConstructorError(fmt.Errorf("recovered from panic: %v", rp)),
+				record.lifetime,
+				record.typeName,
+			)
+		}
+	}()
+
 	constructor := record.constructor
 	fn := reflect.ValueOf(constructor)
 	args := make([]reflect.Value, 0, 1)
@@ -87,9 +227,8 @@ func (l *locator) get(ctx context.Context, record record) (any, error) {
 		}
 
 		service, err := l.Get(ctx, dep)
-
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		args = append(args, reflect.ValueOf(service))
@@ -97,26 +236,57 @@ func (l *locator) get(ctx context.Context, record record) (any, error) {
 
 	values := fn.Call(args)
 
-	if len(values) != 2 {
-		return nil, NewServiceBuilderError(
-			NewConstructorError(NewUnexpectedResultError(values)),
+	if record.constructorType == onlyService && len(values) != 1 ||
+		record.constructorType == withError && len(values) != 2 ||
+		record.constructorType == withErrorAndCleanUp && len(values) != 3 {
+		return nil, nil, newServiceBuilderError(
+			newConstructorError(newUnexpectedResultError(values)),
 			record.lifetime,
 			record.typeName,
 		)
 	}
 
-	serviceV, errV := values[0], values[1]
-	if err, ok := (errV.Interface()).(error); ok && err != nil {
-		return nil, NewServiceBuilderError(
-			NewConstructorError(err),
+	switch record.constructorType {
+	case onlyService:
+		service := values[0].Interface()
+		return service, func() {}, nil
+	case withError:
+		serviceV, errV := values[0], values[1]
+		if err, ok := (errV.Interface()).(error); ok && err != nil {
+			return nil, nil, newServiceBuilderError(
+				newConstructorError(err),
+				record.lifetime,
+				record.typeName,
+			)
+		}
+
+		service := serviceV.Interface()
+
+		return service, func() {}, nil
+	case withErrorAndCleanUp:
+		serviceV, cleanUpV, errV := values[0], values[1], values[2]
+		if err, ok := (errV.Interface()).(error); ok && err != nil {
+			return nil, nil, newServiceBuilderError(
+				newConstructorError(err),
+				record.lifetime,
+				record.typeName,
+			)
+		}
+
+		service := serviceV.Interface()
+		cleanUp := cleanUpV.Interface()
+
+		return service, cleanUp.(func()), nil
+	default:
+		return nil, nil, newServiceBuilderError(
+			newConstructorUnsupportedError(
+				fn.Type(),
+				record.lifetime,
+			),
 			record.lifetime,
 			record.typeName,
 		)
 	}
-
-	service := serviceV.Interface()
-
-	return service, nil
 }
 
 func (l *locator) getSingleton(ctx context.Context, record record, serviceName string) (any, error) {
@@ -138,23 +308,25 @@ func (l *locator) getSingleton(ctx context.Context, record record, serviceName s
 		return service, nil
 	}
 
-	service, err := l.get(ctx, record)
+	service, cleanUp, err := l.get(ctx, record)
 	if err != nil {
 		return nil, err
 	}
 
 	l.singletons.set(serviceName, service)
 
+	go func() { l.singletonsCleanupCh <- cleanUp }()
+
 	return service, nil
 }
 
 func (l *locator) getPerContext(ctx context.Context, record record, serviceName string) (any, error) {
 	if ctx == nil {
-		return nil, NewServiceBuilderError(ErrNilContext, record.lifetime, serviceName)
+		return nil, newServiceBuilderError(ErrNilContext, record.lifetime, serviceName)
 	}
 
 	if err := ctx.Err(); err != nil {
-		return nil, NewServiceBuilderError(err, record.lifetime, serviceName)
+		return nil, newServiceBuilderError(err, record.lifetime, serviceName)
 	}
 
 	l.pcMuMu.Lock()
@@ -162,13 +334,17 @@ func (l *locator) getPerContext(ctx context.Context, record record, serviceName 
 
 	if _, ok := l.pcMu[perContextKey]; !ok {
 		go func() {
-			<-ctx.Done()
-			l.pcMuMu.Lock()
+			l.perContextCleanUpCh <- cleanupRecord{
+				ctx: ctx,
+				fn: func() {
+					l.pcMuMu.Lock()
 
-			delete(l.pcMu, perContextKey)
-			l.perContext.delete(ctx)
+					delete(l.pcMu, perContextKey)
+					l.perContext.delete(ctx)
 
-			l.pcMuMu.Unlock()
+					l.pcMuMu.Unlock()
+				},
+			}
 		}()
 	}
 
@@ -189,10 +365,12 @@ func (l *locator) getPerContext(ctx context.Context, record record, serviceName 
 		return service, nil
 	}
 
-	service, err := l.get(ctx, record)
+	service, cleanUp, err := l.get(ctx, record)
 	if err != nil {
 		return nil, err
 	}
+
+	go func() { l.perContextCleanUpCh <- cleanupRecord{ctx: ctx, fn: cleanUp} }()
 
 	l.perContext.set(ctx, serviceName, service)
 

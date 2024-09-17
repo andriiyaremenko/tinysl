@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 )
 
@@ -12,8 +13,8 @@ type HelloService interface {
 }
 
 type ServiceWithPublicFields struct {
-	someProperty string
 	Dependency   NameService
+	someProperty string
 }
 
 func (s ServiceWithPublicFields) SomeProperty() string {
@@ -44,8 +45,8 @@ type TableTimer struct {
 }
 
 type Impostor struct {
-	name string
 	hero *Hero
+	name string
 }
 
 func (i *Impostor) Disguise() {
@@ -82,7 +83,7 @@ func (c *TableTimer) Countdown(w io.Writer, seconds int) {
 				return
 			case <-ticker.C:
 				total -= time.Second
-				_, _ = w.Write([]byte(fmt.Sprintf("%s have %d seconds left", c.nameService.Name(), total)))
+				_, _ = fmt.Fprintf(w, "%s have %d seconds left", c.nameService.Name(), total)
 
 				if total == 0 {
 					ticker.Stop()
@@ -116,4 +117,32 @@ func disguisedImpostorConstructor(impostor *Impostor) (*Hero, error) {
 
 func heroConstructor(nameService NameService) (*Hero, error) {
 	return &Hero{nameService.Name()}, nil
+}
+
+func heroConstructorWithCleanup(cleanup func()) func(nameService NameService) (*Hero, func(), error) {
+	return func(nameService NameService) (*Hero, func(), error) {
+		return &Hero{nameService.Name()}, cleanup, nil
+	}
+}
+
+func scaredHeroConstructorWithCleanup(nameService NameService) (*Hero, error) {
+	panic(fmt.Errorf("scared"))
+}
+
+type logTester struct {
+	message string
+	mu      sync.Mutex
+}
+
+func (l *logTester) Error(msg string, _ ...any) {
+	l.mu.Lock()
+	l.message = msg
+	l.mu.Unlock()
+}
+
+func (l *logTester) Message() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.message
 }

@@ -34,9 +34,9 @@ func (ms yourservice) ReplyHello() string {
 }
 
 sl, err := tinysl.
-	Add(tinysl.PerContext, func(ctx context.Context) (MyService, error){
+	Add(tinysl.PerContext, func(ctx context.Context) MyService {
 		// get your service instance
-		return myservice("SomeService"), nil
+		return myservice("SomeService")
 	}).
 	Add(tinysl.PerContext, func(ctx context.Context, myService MyService) (YourService, error){
 		// get your service instance
@@ -82,11 +82,11 @@ GetMyRequestHandler(lazy)
 ### Lifetime constants:
  * `tinysl.PerContext`
  * `tinysl.Singleton`
- * `tinysl.Transient`
+ * `tinysl.Transient` - will be deprecated
 
 ### Constructor types that can be used:
- * `func(T1, T2, ...) (T, error)` - for PerContext, Transient and Singleton
- * `func(context.Context, T1, T2, ...) (T, error)` - for PerContext and Transient only    
+ * `func(T1, T2, ...) [T|(T, error)|(T, Cleanup, error)]` - for PerContext, Transient and Singleton
+ * `func(context.Context, T1, T2, ...) [T|(T, error)|(T, Cleanup, error)]` - for PerContext and Transient only    
 
 ### Public fields constructor
  * `tinysl.T[Type]` - would return `Type` instance with filled public fields using registered constructors.

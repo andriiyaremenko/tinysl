@@ -20,8 +20,8 @@ func newInstances() *instances {
 }
 
 type instances struct {
-	mu sync.RWMutex
 	m  map[string]any
+	mu sync.RWMutex
 }
 
 func (i *instances) get(key string) (any, bool) {
@@ -48,9 +48,8 @@ func newContextInstances() *contextInstances {
 }
 
 type contextInstances struct {
+	m  map[string]any
 	mu sync.RWMutex
-
-	m map[string]any
 }
 
 func (ci *contextInstances) get(ctx context.Context, key string) (any, bool) {
