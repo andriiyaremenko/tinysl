@@ -517,7 +517,7 @@ var _ = Describe("ServiceLocator", func() {
 		time.Sleep(time.Millisecond)
 		cancel()
 		Eventually(cleaned).Should(BeClosed())
-		Eventually(l.Message()).Should(Equal("cleanup PerContext: recovered from panic: oops"))
+		Eventually(l.Message()).Should(Equal("recovered from panic during PerContext cleanup"))
 	})
 
 	It("should handle panic during cleanup function for Singleton", func() {
@@ -543,7 +543,7 @@ var _ = Describe("ServiceLocator", func() {
 		time.Sleep(time.Millisecond)
 		cancel()
 		Eventually(cleaned).Should(BeClosed())
-		Eventually(l.Message()).Should(Equal("cleanup Singleton: recovered from panic: oops"))
+		Eventually(l.Message()).Should(Equal("recovered from panic during Singleton cleanup"))
 	})
 
 	It("should work with constructor without error", func() {

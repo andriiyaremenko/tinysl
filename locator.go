@@ -32,7 +32,9 @@ loop:
 			cleanup = func() {
 				defer func() {
 					if rp := recover(); rp != nil {
-						DefaultErrorLogger.Error(fmt.Errorf("cleanup Singleton: recovered from panic: %v", rp).Error())
+						DefaultErrorLogger.Error(
+							"recovered from panic during Singleton cleanup",
+							"error", fmt.Errorf("cleanup Singleton: recovered from panic: %v", rp))
 					}
 				}()
 				oldFn()
@@ -72,7 +74,9 @@ loop:
 				fn = func() {
 					defer func() {
 						if rp := recover(); rp != nil {
-							DefaultErrorLogger.Error(fmt.Errorf("cleanup PerContext: recovered from panic: %v", rp).Error())
+							DefaultErrorLogger.Error(
+								"recovered from panic during PerContext cleanup",
+								"error", fmt.Errorf("cleanup PerContext: recovered from panic: %v", rp))
 						}
 					}()
 					oldFn()
@@ -82,7 +86,9 @@ loop:
 				fn = func() {
 					defer func() {
 						if rp := recover(); rp != nil {
-							DefaultErrorLogger.Error(fmt.Errorf("cleanup PerContext: recovered from panic: %v", rp).Error())
+							DefaultErrorLogger.Error(
+								"recovered from panic during PerContext cleanup",
+								"error", fmt.Errorf("cleanup PerContext: recovered from panic: %v", rp))
 						}
 					}()
 					rec.fn()
