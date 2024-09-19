@@ -104,7 +104,7 @@ func MustGet[T any](ctx context.Context, sl ServiceLocator) T {
 // Your HTTP handler function decorator.
 // Registers an error if no constructor was found with ServiceLocator
 // which should be checked with ServiceLocator.Err().
-func DecorateHandler[T any](sl ServiceLocator, fn func(T) http.Handler) http.HandlerFunc {
+func DecorateHandler[T any, H http.Handler](sl ServiceLocator, fn func(T) H) http.HandlerFunc {
 	serviceType := reflect.TypeOf(new(T))
 	serviceName := serviceType.Elem().String()
 

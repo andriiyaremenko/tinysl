@@ -104,7 +104,7 @@ var _ = Describe("Functions", func() {
 			defer cancel()
 
 			handler := tinysl.DecorateHandler(
-				sl, func(h HelloService) http.Handler {
+				sl, func(h HelloService) http.HandlerFunc {
 					return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 						_, _ = w.Write([]byte(h.Hello()))
 					})
