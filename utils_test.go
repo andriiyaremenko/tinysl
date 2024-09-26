@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"sync"
+	"log/slog"
 	"time"
 )
 
@@ -129,20 +129,9 @@ func scaredHeroConstructorWithCleanup(nameService NameService) (*Hero, error) {
 	panic(fmt.Errorf("scared"))
 }
 
-type logTester struct {
-	message string
-	mu      sync.Mutex
-}
-
-func (l *logTester) Error(msg string, _ ...any) {
-	l.mu.Lock()
-	l.message = msg
-	l.mu.Unlock()
-}
-
-func (l *logTester) Message() string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	return l.message
+func removeTime(_ []string, a slog.Attr) slog.Attr {
+	if a.Key == slog.TimeKey {
+		return slog.Attr{}
+	}
+	return a
 }

@@ -8,6 +8,9 @@ import (
 	"reflect"
 	"sync"
 	"syscall"
+	"time"
+
+	"golang.org/x/exp/rand"
 )
 
 var _ ServiceLocator = new(locator)
@@ -30,6 +33,8 @@ loop:
 		case fn := <-singletonsCleanupCh:
 			oldFn := cleanup
 			cleanup = func() {
+				oldFn()
+
 				defer func() {
 					if rp := recover(); rp != nil {
 						DefaultErrorLogger.Error(
@@ -37,7 +42,7 @@ loop:
 							"error", fmt.Errorf("cleanup Singleton: recovered from panic: %v", rp))
 					}
 				}()
-				oldFn()
+
 				fn()
 			}
 		case <-ctx.Done():
@@ -56,6 +61,8 @@ func perContextCleanupWorker(ctx context.Context, perContextCleanupCh <-chan cle
 	ctxList := []context.Context{}
 	nextCtx := context.Background()
 	replaceNextContext := true
+	ticker := time.NewTicker(time.Second)
+
 loop:
 	for {
 		select {
@@ -72,6 +79,8 @@ loop:
 			if ok {
 				oldFn := fn
 				fn = func() {
+					oldFn()
+
 					defer func() {
 						if rp := recover(); rp != nil {
 							DefaultErrorLogger.Error(
@@ -79,7 +88,7 @@ loop:
 								"error", fmt.Errorf("cleanup PerContext: recovered from panic: %v", rp))
 						}
 					}()
-					oldFn()
+
 					rec.fn()
 				}
 			} else {
@@ -91,6 +100,7 @@ loop:
 								"error", fmt.Errorf("cleanup PerContext: recovered from panic: %v", rp))
 						}
 					}()
+
 					rec.fn()
 				}
 			}
@@ -118,10 +128,21 @@ loop:
 				nextCtx = ctxList[0]
 				ctxList = ctxList[1:]
 			}
+		case <-ticker.C:
+			if len(ctxList) > 1 {
+				for i := range ctxList {
+					j := rand.Intn(i + 1)
+					ctxList[i], ctxList[j] = ctxList[j], ctxList[i]
+				}
+
+				nextCtx = ctxList[0]
+			}
 		case <-ctx.Done():
 			break loop
 		}
 	}
+
+	ticker.Stop()
 
 	for _, fn := range cleanups {
 		fn()
