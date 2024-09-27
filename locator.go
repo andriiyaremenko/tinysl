@@ -3,14 +3,13 @@ package tinysl
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"os/signal"
 	"reflect"
 	"sync"
 	"syscall"
 	"time"
-
-	"golang.org/x/exp/rand"
 )
 
 var _ ServiceLocator = new(locator)
@@ -131,7 +130,7 @@ loop:
 		case <-ticker.C:
 			if len(ctxList) > 1 {
 				for i := range ctxList {
-					j := rand.Intn(i + 1)
+					j := rand.IntN(i + 1)
 					ctxList[i], ctxList[j] = ctxList[j], ctxList[i]
 				}
 
