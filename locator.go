@@ -33,19 +33,10 @@ loop:
 			oldFn := cleanup
 			cleanup = func() {
 				oldFn()
-
-				defer func() {
-					if rp := recover(); rp != nil {
-						errorLogger.Error(
-							"recovered from panic during Singleton cleanup",
-							"error", fmt.Errorf("cleanup Singleton: recovered from panic: %v", rp))
-					}
-				}()
-
 				fn()
 			}
 		case <-ctx.Done():
-			cleanup()
+			cleanup.CallWithRecovery(Singleton)
 			break loop
 		}
 	}
@@ -79,29 +70,10 @@ loop:
 				oldFn := fn
 				fn = func() {
 					oldFn()
-
-					defer func() {
-						if rp := recover(); rp != nil {
-							errorLogger.Error(
-								"recovered from panic during PerContext cleanup",
-								"error", fmt.Errorf("cleanup PerContext: recovered from panic: %v", rp))
-						}
-					}()
-
 					rec.fn()
 				}
 			} else {
-				fn = func() {
-					defer func() {
-						if rp := recover(); rp != nil {
-							errorLogger.Error(
-								"recovered from panic during PerContext cleanup",
-								"error", fmt.Errorf("cleanup PerContext: recovered from panic: %v", rp))
-						}
-					}()
-
-					rec.fn()
-				}
+				fn = rec.fn
 			}
 
 			cleanups[key] = fn
@@ -115,7 +87,7 @@ loop:
 		case <-nextCtx.Done():
 			key := getPerContextKey(nextCtx, "")
 			if fn, ok := cleanups[key]; ok {
-				fn()
+				fn.CallWithRecovery(PerContext)
 			}
 
 			delete(cleanups, key)
@@ -144,7 +116,7 @@ loop:
 	ticker.Stop()
 
 	for _, fn := range cleanups {
-		fn()
+		fn.CallWithRecovery(PerContext)
 	}
 
 	wg.Done()

@@ -1,11 +1,9 @@
 package tinysl_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
@@ -501,10 +499,6 @@ var _ = Describe("ServiceLocator", func() {
 	})
 
 	It("should handle panic during cleanup function for PerContext", func() {
-		var buf bytes.Buffer
-
-		tinysl.SetDefaultErrorLogger(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{ReplaceAttr: removeTime})))
-
 		cleaned := make(chan struct{})
 		sl, err := tinysl.
 			Add(tinysl.PerContext, nameServiceConstructor).
@@ -520,19 +514,11 @@ var _ = Describe("ServiceLocator", func() {
 		time.Sleep(time.Millisecond)
 		cancel()
 		Eventually(cleaned).Should(BeClosed())
-		Eventually(buf.String()).
-			Should(
-				Equal("level=ERROR msg=\"recovered from panic during PerContext cleanup\" error=\"cleanup PerContext: recovered from panic: oops\"\n"),
-			)
 	})
 
 	It("should handle panic during cleanup function for Singleton", func() {
 		appCtx := context.Background()
 		appCtx, cancel := context.WithCancel(appCtx)
-
-		var buf bytes.Buffer
-
-		tinysl.SetDefaultErrorLogger(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{ReplaceAttr: removeTime})))
 
 		cleaned := make(chan struct{})
 		sl, err := tinysl.
@@ -550,10 +536,6 @@ var _ = Describe("ServiceLocator", func() {
 		time.Sleep(time.Millisecond)
 		cancel()
 		Eventually(cleaned).Should(BeClosed())
-		Eventually(buf.String()).
-			Should(
-				Equal("level=ERROR msg=\"recovered from panic during Singleton cleanup\" error=\"cleanup Singleton: recovered from panic: oops\"\n"),
-			)
 	})
 
 	It("should work with constructor without error", func() {

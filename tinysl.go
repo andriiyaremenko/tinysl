@@ -2,6 +2,7 @@ package tinysl
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"reflect"
@@ -35,6 +36,17 @@ func (l Lifetime) String() string {
 type Lifetime int
 
 type Cleanup func()
+
+func (c Cleanup) CallWithRecovery(l Lifetime) {
+	defer func() {
+		if rp := recover(); rp != nil {
+			errorLogger.Error(
+				fmt.Sprintf("recovered from panic during %s cleanup", l),
+				"error", fmt.Errorf("cleanup %s: recovered from panic: %v", l, rp))
+		}
+	}()
+	c()
+}
 
 type ErrorLogger interface {
 	Error(msg string, args ...any)
