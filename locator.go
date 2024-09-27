@@ -37,7 +37,7 @@ loop:
 
 				defer func() {
 					if rp := recover(); rp != nil {
-						DefaultErrorLogger.Error(
+						errorLogger.Error(
 							"recovered from panic during Singleton cleanup",
 							"error", fmt.Errorf("cleanup Singleton: recovered from panic: %v", rp))
 					}
@@ -83,7 +83,7 @@ loop:
 
 					defer func() {
 						if rp := recover(); rp != nil {
-							DefaultErrorLogger.Error(
+							errorLogger.Error(
 								"recovered from panic during PerContext cleanup",
 								"error", fmt.Errorf("cleanup PerContext: recovered from panic: %v", rp))
 						}
@@ -95,7 +95,7 @@ loop:
 				fn = func() {
 					defer func() {
 						if rp := recover(); rp != nil {
-							DefaultErrorLogger.Error(
+							errorLogger.Error(
 								"recovered from panic during PerContext cleanup",
 								"error", fmt.Errorf("cleanup PerContext: recovered from panic: %v", rp))
 						}
@@ -340,9 +340,9 @@ func (l *locator) getSingleton(ctx context.Context, record record, serviceName s
 		return nil, err
 	}
 
-	l.singletons.set(serviceName, service)
-
 	go func() { l.singletonsCleanupCh <- cleanUp }()
+
+	l.singletons.set(serviceName, service)
 
 	return service, nil
 }

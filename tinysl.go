@@ -40,10 +40,10 @@ type ErrorLogger interface {
 	Error(msg string, args ...any)
 }
 
-var DefaultErrorLogger ErrorLogger = slog.Default()
+var errorLogger ErrorLogger = slog.Default()
 
 func SetDefaultErrorLogger(l ErrorLogger) {
-	DefaultErrorLogger = l
+	errorLogger = l
 }
 
 type ServiceLocatorBuilder interface {
