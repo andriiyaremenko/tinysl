@@ -31,4 +31,4 @@ jobs:
         uses: guyarb/golang-test-annotations@v0.8.0
         with:
           test-results: test.json
-          package-name: tinysl
+          package-name: github.com/andriiyaremenko/tinysl
