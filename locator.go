@@ -101,6 +101,12 @@ loop:
 			}
 		case <-ticker.C:
 			if len(ctxList) > 1 {
+				select {
+				case <-nextCtx.Done():
+					continue loop
+				default:
+				}
+
 				for i := range ctxList {
 					j := rand.IntN(i + 1)
 					ctxList[i], ctxList[j] = ctxList[j], ctxList[i]
