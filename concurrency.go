@@ -3,9 +3,14 @@ package tinysl
 import (
 	"context"
 	"fmt"
-	"strings"
+	"slices"
 	"sync"
 )
+
+type keyValue[T any] struct {
+	value T
+	key   string
+}
 
 func getPerContextKey(ctx context.Context, key string) string {
 	if key == "" {
@@ -43,21 +48,33 @@ func (i *instances) set(key string, value any) {
 
 func newContextInstances() *contextInstances {
 	return &contextInstances{
-		m: make(map[string]any),
+		m: make([]keyValue[[]keyValue[any]], 1),
 	}
 }
 
 type contextInstances struct {
-	m  map[string]any
+	m  []keyValue[[]keyValue[any]]
 	mu sync.RWMutex
 }
 
-func (ci *contextInstances) get(ctx context.Context, key string) (any, bool) {
+func (ci *contextInstances) get(ctx context.Context, key string) (value any, ok bool) {
 	ci.mu.RLock()
 	defer ci.mu.RUnlock()
 
-	key = getPerContextKey(ctx, key)
-	value, ok := ci.m[key]
+	ctxKey := getPerContextKey(ctx, "")
+	i, ok := slices.BinarySearchFunc(ci.m, ctxKey, perContextSortingOrder)
+
+	if !ok || ci.m[i].key != ctxKey {
+		return nil, false
+	}
+
+	ok = false
+	for _, vKeyVal := range ci.m[i].value {
+		if vKeyVal.key == key {
+			value = vKeyVal.value
+			ok = true
+		}
+	}
 
 	return value, ok
 }
@@ -65,9 +82,16 @@ func (ci *contextInstances) get(ctx context.Context, key string) (any, bool) {
 func (ci *contextInstances) set(ctx context.Context, key string, value any) {
 	ci.mu.Lock()
 
-	key = getPerContextKey(ctx, key)
+	ctxKey := getPerContextKey(ctx, "")
+	vKeyVal := keyValue[any]{value, key}
 
-	ci.m[key] = value
+	i, ok := slices.BinarySearchFunc(ci.m, ctxKey, perContextSortingOrder)
+
+	if ok && ci.m[i].key == ctxKey {
+		ci.m[i].value = append(ci.m[i].value, vKeyVal)
+	} else {
+		ci.m = slices.Insert(ci.m, i, keyValue[[]keyValue[any]]{key: ctxKey, value: []keyValue[any]{vKeyVal}})
+	}
 
 	ci.mu.Unlock()
 }
@@ -75,13 +99,24 @@ func (ci *contextInstances) set(ctx context.Context, key string, value any) {
 func (ci *contextInstances) delete(ctx context.Context) {
 	ci.mu.Lock()
 
-	prefix := getPerContextKey(ctx, "")
+	ctxKey := getPerContextKey(ctx, "")
 
-	for key := range ci.m {
-		if strings.HasPrefix(key, prefix) {
-			delete(ci.m, key)
-		}
+	i, ok := slices.BinarySearchFunc(ci.m, ctxKey, perContextSortingOrder)
+
+	if ok && ci.m[i].key == ctxKey {
+		ci.m = slices.Delete(ci.m, i, i+1)
 	}
 
 	ci.mu.Unlock()
+}
+
+func perContextSortingOrder(el keyValue[[]keyValue[any]], target string) int {
+	switch {
+	case el.key < target:
+		return -1
+	case el.key > target:
+		return 1
+	default:
+		return 0
+	}
 }
