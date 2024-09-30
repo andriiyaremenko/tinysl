@@ -22,31 +22,21 @@ func BenchmarkGetTransinet(b *testing.B) {
 }
 
 func BenchmarkGetPerContext(b *testing.B) {
-	ctx := context.TODO()
-	ctx, cancel := context.WithCancel(ctx)
-
-	defer cancel()
-
 	sl, _ := tinysl.Add(tinysl.PerContext, nameServiceConstructor).ServiceLocator()
 
 	for i := 0; i < b.N; i++ {
-		_, _ = tinysl.Get[NameService](ctx, sl)
+		runNCallsForPerContext[NameService](sl, 1)
 	}
 }
 
 func BenchmarkGetPerContext2Services(b *testing.B) {
-	ctx := context.TODO()
-	ctx, cancel := context.WithCancel(ctx)
-
-	defer cancel()
-
 	sl, _ := tinysl.
 		Add(tinysl.PerContext, nameServiceConstructor).
 		Add(tinysl.PerContext, heroConstructor).
 		ServiceLocator()
 
 	for i := 0; i < b.N; i++ {
-		_, _ = tinysl.Get[*Hero](ctx, sl)
+		runNCallsForPerContext[*Hero](sl, 1)
 	}
 }
 
@@ -103,6 +93,32 @@ func BenchmarkGetPerContext4Services100Contexts(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		runNCallsForPerContext[*Impostor](sl, 100)
+	}
+}
+
+func BenchmarkGetPerContext4Services1000Contexts(b *testing.B) {
+	sl, _ := tinysl.
+		Add(tinysl.PerContext, nameServiceConstructor).
+		Add(tinysl.PerContext, tableTimerConstructor).
+		Add(tinysl.PerContext, heroConstructor).
+		Add(tinysl.PerContext, impostorConstructor).
+		ServiceLocator()
+
+	for i := 0; i < b.N; i++ {
+		runNCallsForPerContext[*Impostor](sl, 1000)
+	}
+}
+
+func BenchmarkGetPerContext4Services10_000Contexts(b *testing.B) {
+	sl, _ := tinysl.
+		Add(tinysl.PerContext, nameServiceConstructor).
+		Add(tinysl.PerContext, tableTimerConstructor).
+		Add(tinysl.PerContext, heroConstructor).
+		Add(tinysl.PerContext, impostorConstructor).
+		ServiceLocator()
+
+	for i := 0; i < b.N; i++ {
+		runNCallsForPerContext[*Impostor](sl, 10_000)
 	}
 }
 
