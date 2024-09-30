@@ -161,6 +161,19 @@ func BenchmarkGetPerContext4Services100_000Contexts(b *testing.B) {
 	}
 }
 
+func BenchmarkGetPerContext4Services250_000Contexts(b *testing.B) {
+	sl, _ := tinysl.
+		Add(tinysl.PerContext, nameServiceConstructor).
+		Add(tinysl.PerContext, tableTimerConstructor).
+		Add(tinysl.PerContext, heroConstructor).
+		Add(tinysl.PerContext, impostorConstructor).
+		ServiceLocator()
+
+	for i := 0; i < b.N; i++ {
+		runNCallsForPerContext[*Impostor](sl, 250_000)
+	}
+}
+
 func BenchmarkGetSingleton(b *testing.B) {
 	ctx := context.TODO()
 	ctx, cancel := context.WithCancel(ctx)
