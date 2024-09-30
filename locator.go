@@ -158,15 +158,14 @@ func newLocator(ctx context.Context, constructors map[string]record, size uint) 
 
 type locator struct {
 	err                 error
-	sMu                 sync.Map
-	pcMu                sync.Map
-	singletons          sync.Map
 	perContext          *contextInstances
 	constructors        map[string]record
 	singletonsCleanupCh chan<- Cleanup
 	perContextCleanUpCh chan<- cleanupRecord
+	sMu                 sync.Map
+	pcMu                sync.Map
+	singletons          sync.Map
 	errRMu              sync.RWMutex
-	pcMuMu              sync.Mutex
 }
 
 func (l *locator) EnsureAvailable(serviceName string) {
