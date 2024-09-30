@@ -122,6 +122,32 @@ func BenchmarkGetPerContext4Services10_000Contexts(b *testing.B) {
 	}
 }
 
+func BenchmarkGetPerContext4Services100_000Contexts(b *testing.B) {
+	sl, _ := tinysl.
+		Add(tinysl.PerContext, nameServiceConstructor).
+		Add(tinysl.PerContext, tableTimerConstructor).
+		Add(tinysl.PerContext, heroConstructor).
+		Add(tinysl.PerContext, impostorConstructor).
+		ServiceLocator()
+
+	for i := 0; i < b.N; i++ {
+		runNCallsForPerContext[*Impostor](sl, 100_000)
+	}
+}
+
+func BenchmarkGetSingleton(b *testing.B) {
+	ctx := context.TODO()
+	ctx, cancel := context.WithCancel(ctx)
+
+	defer cancel()
+
+	sl, _ := tinysl.Add(tinysl.Singleton, nameServiceConstructor).ServiceLocator()
+
+	for i := 0; i < b.N; i++ {
+		_, _ = tinysl.Get[NameService](ctx, sl)
+	}
+}
+
 func runNCallsForPerContext[T any](sl tinysl.ServiceLocator, n int) {
 	var wg sync.WaitGroup
 	for i := 0; i < n; i++ {
@@ -137,17 +163,4 @@ func runNCallsForPerContext[T any](sl tinysl.ServiceLocator, n int) {
 	}
 
 	wg.Wait()
-}
-
-func BenchmarkGetSingleton(b *testing.B) {
-	ctx := context.TODO()
-	ctx, cancel := context.WithCancel(ctx)
-
-	defer cancel()
-
-	sl, _ := tinysl.Add(tinysl.Singleton, nameServiceConstructor).ServiceLocator()
-
-	for i := 0; i < b.N; i++ {
-		_, _ = tinysl.Get[NameService](ctx, sl)
-	}
 }
