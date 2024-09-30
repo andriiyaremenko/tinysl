@@ -142,16 +142,20 @@ func newLocator(ctx context.Context, constructors map[string]record, size uint) 
 	}
 
 	sLen := 0
+	perCtxLen := 0
 	for _, rec := range constructors {
-		if rec.lifetime == Singleton {
+		switch rec.lifetime {
+		case Singleton:
 			sLen++
+		case PerContext:
+			perCtxLen++
 		}
 	}
 
 	return &locator{
 		constructors:        constructors,
 		singletons:          newInstances(sLen),
-		perContext:          newContextInstances(),
+		perContext:          newContextInstances(perCtxLen),
 		sMu:                 make(map[string]*sync.Mutex),
 		pcMu:                make(map[string]*sync.Mutex),
 		singletonsCleanupCh: singletonsCleanupCh,

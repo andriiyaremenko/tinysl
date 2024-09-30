@@ -3,12 +3,11 @@ package tinysl
 import (
 	"context"
 	"fmt"
-	"slices"
 	"sync"
 )
 
-type keyValue[T any] struct {
-	value T
+type keyValue struct {
+	value any
 	key   string
 }
 
@@ -20,85 +19,76 @@ func getPerContextKey(ctx context.Context, key string) string {
 	return fmt.Sprintf("%p::%s", ctx, key)
 }
 
-func newInstances(c int) *instances {
-	return &instances{m: make([]keyValue[any], 0, c)}
+func newInstances(l int) *instances {
+	return &instances{m: make(map[string]any, l)}
 }
 
 type instances struct {
-	m  []keyValue[any]
+	m  map[string]any
 	mu sync.RWMutex
 }
 
-func (in *instances) get(key string) (any, bool) {
-	in.mu.RLock()
-	defer in.mu.RUnlock()
+func (i *instances) get(key string) (any, bool) {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
 
-	i, ok := slices.BinarySearchFunc(in.m, key, sortingOrder)
+	value, ok := i.m[key]
 
-	if !ok || in.m[i].key != key {
-		return nil, false
-	}
-
-	return in.m[i].value, true
+	return value, ok
 }
 
-func (in *instances) set(key string, value any) {
-	in.mu.Lock()
+func (i *instances) set(key string, value any) {
+	i.mu.Lock()
 
-	i, ok := slices.BinarySearchFunc(in.m, key, sortingOrder)
+	i.m[key] = value
 
-	if !ok || in.m[i].key != key {
-		in.m = slices.Insert(in.m, i, keyValue[any]{value, key})
-	}
-
-	in.mu.Unlock()
+	i.mu.Unlock()
 }
 
-func newContextInstances() *contextInstances {
+func newContextInstances(c int) *contextInstances {
 	return &contextInstances{
-		m: make([]keyValue[[]keyValue[any]], 1),
+		c: c,
+		m: make(map[string][]keyValue),
 	}
 }
 
 type contextInstances struct {
-	m  []keyValue[[]keyValue[any]]
+	m  map[string][]keyValue
+	c  int
 	mu sync.RWMutex
 }
 
-func (ci *contextInstances) get(ctx context.Context, key string) (value any, ok bool) {
+func (ci *contextInstances) get(ctx context.Context, key string) (any, bool) {
 	ci.mu.RLock()
 	defer ci.mu.RUnlock()
 
-	ctxKey := getPerContextKey(ctx, "")
-	i, ok := slices.BinarySearchFunc(ci.m, ctxKey, sortingOrder)
+	perCtxKey := getPerContextKey(ctx, "")
+	sl, ok := ci.m[perCtxKey]
 
-	if !ok || ci.m[i].key != ctxKey {
+	if !ok {
 		return nil, false
 	}
 
-	ok = false
-	for _, vKeyVal := range ci.m[i].value {
-		if vKeyVal.key == key {
-			value = vKeyVal.value
-			ok = true
+	for _, el := range sl {
+		if el.key == key {
+			return el.value, true
 		}
 	}
 
-	return value, ok
+	return nil, false
 }
 
 func (ci *contextInstances) set(ctx context.Context, key string, value any) {
 	ci.mu.Lock()
 
-	ctxKey := getPerContextKey(ctx, "")
-	vKeyVal := keyValue[any]{value, key}
+	perCtxKey := getPerContextKey(ctx, "")
+	keyValueVal := keyValue{key: key, value: value}
 
-	i, ok := slices.BinarySearchFunc(ci.m, ctxKey, sortingOrder)
-
-	if ok && ci.m[i].key == ctxKey {
-		ci.m[i].value = append(ci.m[i].value, vKeyVal)
+	if _, ok := ci.m[perCtxKey]; ok {
+		ci.m[perCtxKey] = append(ci.m[perCtxKey], keyValueVal)
 	} else {
-		ci.m = slices.Insert(ci.m, i, keyValue[[]keyValue[any]]{key: ctxKey, value: []keyValue[any]{vKeyVal}})
+		ci.m[perCtxKey] = make([]keyValue, 1, ci.c)
+		ci.m[perCtxKey][0] = keyValueVal
 	}
 
 	ci.mu.Unlock()
@@ -107,24 +97,7 @@ func (ci *contextInstances) set(ctx context.Context, key string, value any) {
 func (ci *contextInstances) delete(ctx context.Context) {
 	ci.mu.Lock()
 
-	ctxKey := getPerContextKey(ctx, "")
-
-	i, ok := slices.BinarySearchFunc(ci.m, ctxKey, sortingOrder)
-
-	if ok && ci.m[i].key == ctxKey {
-		ci.m = slices.Delete(ci.m, i, i+1)
-	}
+	delete(ci.m, getPerContextKey(ctx, ""))
 
 	ci.mu.Unlock()
-}
-
-func sortingOrder[T any](el keyValue[T], target string) int {
-	switch {
-	case el.key < target:
-		return -1
-	case el.key > target:
-		return 1
-	default:
-		return 0
-	}
 }
