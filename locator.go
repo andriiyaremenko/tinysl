@@ -141,9 +141,16 @@ func newLocator(ctx context.Context, constructors map[string]record, size uint) 
 		go perContextCleanupWorker(ctx, perContextCleanupCh, &wg)
 	}
 
+	sLen := 0
+	for _, rec := range constructors {
+		if rec.lifetime == Singleton {
+			sLen++
+		}
+	}
+
 	return &locator{
 		constructors:        constructors,
-		singletons:          newInstances(),
+		singletons:          newInstances(sLen),
 		perContext:          newContextInstances(),
 		sMu:                 make(map[string]*sync.Mutex),
 		pcMu:                make(map[string]*sync.Mutex),
