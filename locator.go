@@ -141,23 +141,16 @@ func newLocator(ctx context.Context, constructors map[string]record, size uint) 
 		go perContextCleanupWorker(ctx, perContextCleanupCh, &wg)
 	}
 
-	sLen := 0
 	perCtxLen := 0
 	for _, rec := range constructors {
-		switch rec.lifetime {
-		case Singleton:
-			sLen++
-		case PerContext:
+		if rec.lifetime == PerContext {
 			perCtxLen++
 		}
 	}
 
 	return &locator{
 		constructors:        constructors,
-		singletons:          newInstances(sLen),
 		perContext:          newContextInstances(perCtxLen),
-		sMu:                 make(map[string]*sync.Mutex),
-		pcMu:                make(map[string]*sync.Mutex),
 		singletonsCleanupCh: singletonsCleanupCh,
 		perContextCleanUpCh: perContextCleanupCh,
 	}
@@ -165,15 +158,14 @@ func newLocator(ctx context.Context, constructors map[string]record, size uint) 
 
 type locator struct {
 	err                 error
-	sMu                 map[string]*sync.Mutex
-	pcMu                map[string]*sync.Mutex
-	singletons          *instances
+	sMu                 sync.Map
+	pcMu                sync.Map
+	singletons          sync.Map
 	perContext          *contextInstances
 	constructors        map[string]record
 	singletonsCleanupCh chan<- Cleanup
 	perContextCleanUpCh chan<- cleanupRecord
 	errRMu              sync.RWMutex
-	sMuMu               sync.Mutex
 	pcMuMu              sync.Mutex
 }
 
@@ -305,20 +297,12 @@ func (l *locator) get(ctx context.Context, record record) (service any, cleanup 
 }
 
 func (l *locator) getSingleton(ctx context.Context, record record, serviceName string) (any, error) {
-	l.sMuMu.Lock()
+	mu, ok := l.sMu.LoadOrStore(serviceName, new(sync.Mutex))
 
-	if _, ok := l.sMu[serviceName]; !ok {
-		l.sMu[serviceName] = new(sync.Mutex)
-	}
+	mu.(*sync.Mutex).Lock()
+	defer mu.(*sync.Mutex).Unlock()
 
-	mu := l.sMu[serviceName]
-
-	l.sMuMu.Unlock()
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	service, ok := l.singletons.get(serviceName)
+	service, ok := l.singletons.Load(serviceName)
 	if ok {
 		return service, nil
 	}
@@ -330,7 +314,7 @@ func (l *locator) getSingleton(ctx context.Context, record record, serviceName s
 
 	go func() { l.singletonsCleanupCh <- cleanUp }()
 
-	l.singletons.set(serviceName, service)
+	l.singletons.Store(serviceName, service)
 
 	return service, nil
 }
@@ -344,36 +328,27 @@ func (l *locator) getPerContext(ctx context.Context, record record, serviceName 
 		return nil, newServiceBuilderError(err, record.lifetime, serviceName)
 	}
 
-	l.pcMuMu.Lock()
 	perContextKey := getPerContextKey(ctx, "")
+	perContextServiceKey := getPerContextKey(ctx, serviceName)
 
-	if _, ok := l.pcMu[perContextKey]; !ok {
+	_, ok := l.pcMu.LoadOrStore(perContextKey, struct{}{})
+	if !ok {
 		go func() {
 			l.perContextCleanUpCh <- cleanupRecord{
 				ctx: ctx,
 				fn: func() {
-					l.pcMuMu.Lock()
-
-					delete(l.pcMu, perContextKey)
+					l.pcMu.Delete(perContextKey)
+					l.pcMu.Delete(perContextServiceKey)
 					l.perContext.delete(ctx)
-
-					l.pcMuMu.Unlock()
 				},
 			}
 		}()
 	}
 
-	perContextServiceKey := getPerContextKey(ctx, serviceName)
-	if _, ok := l.pcMu[perContextServiceKey]; !ok {
-		l.pcMu[perContextServiceKey] = new(sync.Mutex)
-	}
+	mu, ok := l.pcMu.LoadOrStore(perContextServiceKey, new(sync.Mutex))
 
-	mu := l.pcMu[perContextServiceKey]
-
-	l.pcMuMu.Unlock()
-
-	mu.Lock()
-	defer mu.Unlock()
+	mu.(*sync.Mutex).Lock()
+	defer mu.(*sync.Mutex).Unlock()
 
 	service, ok := l.perContext.get(ctx, serviceName)
 	if ok {

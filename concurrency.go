@@ -19,32 +19,6 @@ func getPerContextKey(ctx context.Context, key string) string {
 	return fmt.Sprintf("%p::%s", ctx, key)
 }
 
-func newInstances(l int) *instances {
-	return &instances{m: make(map[string]any, l)}
-}
-
-type instances struct {
-	m  map[string]any
-	mu sync.RWMutex
-}
-
-func (i *instances) get(key string) (any, bool) {
-	i.mu.RLock()
-	defer i.mu.RUnlock()
-
-	value, ok := i.m[key]
-
-	return value, ok
-}
-
-func (i *instances) set(key string, value any) {
-	i.mu.Lock()
-
-	i.m[key] = value
-
-	i.mu.Unlock()
-}
-
 func newContextInstances(c int) *contextInstances {
 	return &contextInstances{
 		c: c,
