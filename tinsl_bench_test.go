@@ -122,6 +122,32 @@ func BenchmarkGetPerContext4Services10_000Contexts(b *testing.B) {
 	}
 }
 
+func BenchmarkGetPerContext4Services50_000Contexts(b *testing.B) {
+	sl, _ := tinysl.
+		Add(tinysl.PerContext, nameServiceConstructor).
+		Add(tinysl.PerContext, tableTimerConstructor).
+		Add(tinysl.PerContext, heroConstructor).
+		Add(tinysl.PerContext, impostorConstructor).
+		ServiceLocator()
+
+	for i := 0; i < b.N; i++ {
+		runNCallsForPerContext[*Impostor](sl, 50_000)
+	}
+}
+
+func BenchmarkGetPerContext4Services75_000Contexts(b *testing.B) {
+	sl, _ := tinysl.
+		Add(tinysl.PerContext, nameServiceConstructor).
+		Add(tinysl.PerContext, tableTimerConstructor).
+		Add(tinysl.PerContext, heroConstructor).
+		Add(tinysl.PerContext, impostorConstructor).
+		ServiceLocator()
+
+	for i := 0; i < b.N; i++ {
+		runNCallsForPerContext[*Impostor](sl, 75_000)
+	}
+}
+
 func BenchmarkGetPerContext4Services100_000Contexts(b *testing.B) {
 	sl, _ := tinysl.
 		Add(tinysl.PerContext, nameServiceConstructor).
