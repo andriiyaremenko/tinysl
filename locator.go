@@ -47,7 +47,7 @@ loop:
 
 // worker to handle per-context cleanups
 func perContextCleanupWorker(ctx context.Context, perContextCleanupCh <-chan cleanupRecord, wg *sync.WaitGroup) {
-	cleanups := make(map[string]Cleanup)
+	cleanups := make(map[uintptr]Cleanup)
 	ctxList := []context.Context{}
 	nextCtx := context.Background()
 	replaceNextContext := true
@@ -63,8 +63,8 @@ loop:
 
 		select {
 		case rec := <-perContextCleanupCh:
-			key := getPerContextKey(rec.ctx, "")
-			fn, ok := cleanups[key]
+			pt := reflect.ValueOf(rec.ctx).Pointer()
+			fn, ok := cleanups[pt]
 
 			if ok {
 				oldFn := fn
@@ -76,7 +76,7 @@ loop:
 				fn = rec.fn
 			}
 
-			cleanups[key] = fn
+			cleanups[pt] = fn
 
 			if replaceNextContext {
 				nextCtx = rec.ctx
@@ -85,12 +85,12 @@ loop:
 
 			ctxList = append(ctxList, rec.ctx)
 		case <-nextCtx.Done():
-			key := getPerContextKey(nextCtx, "")
-			if fn, ok := cleanups[key]; ok {
+			pt := reflect.ValueOf(nextCtx).Pointer()
+			if fn, ok := cleanups[pt]; ok {
 				fn.CallWithRecovery(PerContext)
 			}
 
-			delete(cleanups, key)
+			delete(cleanups, pt)
 
 			if len(ctxList) == 0 {
 				nextCtx = context.Background()
@@ -128,7 +128,7 @@ loop:
 	wg.Done()
 }
 
-func newLocator(ctx context.Context, constructors map[string]record, size uint) ServiceLocator {
+func newLocator(ctx context.Context, constructors map[string]*record, size uint) ServiceLocator {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	singletonsCleanupCh := make(chan Cleanup)
 	perContextCleanupCh := make(chan cleanupRecord)
@@ -159,7 +159,7 @@ func newLocator(ctx context.Context, constructors map[string]record, size uint) 
 type locator struct {
 	err                 error
 	perContext          *contextInstances
-	constructors        map[string]record
+	constructors        map[string]*record
 	singletonsCleanupCh chan<- Cleanup
 	perContextCleanUpCh chan<- cleanupRecord
 	sMu                 sync.Map
@@ -196,7 +196,7 @@ func (l *locator) Get(ctx context.Context, serviceName string) (any, error) {
 
 	switch record.lifetime {
 	case Singleton:
-		return l.getSingleton(ctx, record, serviceName)
+		return l.getSingleton(ctx, record)
 	case PerContext:
 		return l.getPerContext(ctx, record, serviceName)
 	case Transient:
@@ -211,7 +211,7 @@ func (l *locator) Get(ctx context.Context, serviceName string) (any, error) {
 	}
 }
 
-func (l *locator) get(ctx context.Context, record record) (service any, cleanup Cleanup, err error) {
+func (l *locator) get(ctx context.Context, record *record) (service any, cleanup Cleanup, err error) {
 	defer func() {
 		if rp := recover(); rp != nil {
 			err = newServiceBuilderError(
@@ -295,15 +295,15 @@ func (l *locator) get(ctx context.Context, record record) (service any, cleanup 
 	}
 }
 
-func (l *locator) getSingleton(ctx context.Context, record record, serviceName string) (any, error) {
-	mu, ok := l.sMu.LoadOrStore(serviceName, new(sync.Mutex))
+func (l *locator) getSingleton(ctx context.Context, record *record) (any, error) {
+	mu, ok := l.sMu.LoadOrStore(record.id, new(sync.Mutex))
 
 	mu.(*sync.Mutex).Lock()
 	defer mu.(*sync.Mutex).Unlock()
 
-	service, ok := l.singletons.Load(serviceName)
+	servicePtr, ok := l.singletons.Load(record.id)
 	if ok {
-		return service, nil
+		return *servicePtr.(*any), nil
 	}
 
 	service, cleanUp, err := l.get(ctx, record)
@@ -313,12 +313,12 @@ func (l *locator) getSingleton(ctx context.Context, record record, serviceName s
 
 	go func() { l.singletonsCleanupCh <- cleanUp }()
 
-	l.singletons.Store(serviceName, service)
+	l.singletons.Store(record.id, &service)
 
 	return service, nil
 }
 
-func (l *locator) getPerContext(ctx context.Context, record record, serviceName string) (any, error) {
+func (l *locator) getPerContext(ctx context.Context, record *record, serviceName string) (any, error) {
 	if ctx == nil {
 		return nil, newServiceBuilderError(ErrNilContext, record.lifetime, serviceName)
 	}
@@ -327,18 +327,18 @@ func (l *locator) getPerContext(ctx context.Context, record record, serviceName 
 		return nil, newServiceBuilderError(err, record.lifetime, serviceName)
 	}
 
-	perContextKey := getPerContextKey(ctx, "")
-	perContextServiceKey := getPerContextKey(ctx, serviceName)
+	ctxKey := reflect.ValueOf(ctx).Pointer()
+	perContextServiceKey := getPerContextKey(ctxKey, record.id)
 
-	_, ok := l.pcMu.LoadOrStore(perContextKey, struct{}{})
+	_, ok := l.pcMu.LoadOrStore(perContextServiceKey[0], struct{}{})
 	if !ok {
 		go func() {
 			l.perContextCleanUpCh <- cleanupRecord{
 				ctx: ctx,
 				fn: func() {
-					l.pcMu.Delete(perContextKey)
+					l.pcMu.Delete(perContextServiceKey[0])
 					l.pcMu.Delete(perContextServiceKey)
-					l.perContext.delete(ctx)
+					l.perContext.delete(ctxKey)
 				},
 			}
 		}()
@@ -349,9 +349,9 @@ func (l *locator) getPerContext(ctx context.Context, record record, serviceName 
 	mu.(*sync.Mutex).Lock()
 	defer mu.(*sync.Mutex).Unlock()
 
-	service, ok := l.perContext.get(ctx, serviceName)
+	servicePtr, ok := l.perContext.get(ctxKey, record.id)
 	if ok {
-		return service, nil
+		return *servicePtr, nil
 	}
 
 	service, cleanUp, err := l.get(ctx, record)
@@ -361,7 +361,7 @@ func (l *locator) getPerContext(ctx context.Context, record record, serviceName 
 
 	go func() { l.perContextCleanUpCh <- cleanupRecord{ctx: ctx, fn: cleanUp} }()
 
-	l.perContext.set(ctx, serviceName, service)
+	l.perContext.set(ctxKey, record.id, &service)
 
 	return service, nil
 }

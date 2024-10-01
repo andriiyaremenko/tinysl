@@ -57,6 +57,7 @@ const (
 )
 
 type record struct {
+	id               uintptr
 	constructor      any
 	typeName         string
 	dependencies     []string
@@ -66,13 +67,13 @@ type record struct {
 }
 
 func newContainer(ctx context.Context, workerPoolSize uint) *container {
-	return &container{constructors: make(map[string]record), ctx: ctx, workerPoolSize: workerPoolSize}
+	return &container{constructors: make(map[string]*record), ctx: ctx, workerPoolSize: workerPoolSize}
 }
 
 type container struct {
 	ctx                       context.Context
 	err                       error
-	constructors              map[string]record
+	constructors              map[string]*record
 	constructorsRWM           sync.RWMutex
 	workerPoolSize            uint
 	ignoreScopeAnalyzerErrors bool
@@ -109,7 +110,7 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 
 		t := constructor.Type
 		serviceType := t.String()
-		r := record{
+		r := &record{
 			constructorType: withError,
 			typeName:        serviceType,
 			lifetime:        lifetime,
@@ -126,6 +127,7 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 			return c
 		}
 
+		r.id = reflect.ValueOf(r).Pointer()
 		c.constructors[serviceType] = r
 
 		return c
@@ -201,7 +203,7 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 		return c
 	}
 
-	r := record{
+	r := &record{
 		constructorType: cType,
 		lifetime:        lifetime,
 		constructor:     constructor,
@@ -226,6 +228,7 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 		r.dependencies = append(r.dependencies, argT.String())
 	}
 
+	r.id = reflect.ValueOf(r).Pointer()
 	c.constructors[serviceType] = r
 
 	return c
@@ -240,7 +243,7 @@ func (c *container) ServiceLocator() (ServiceLocator, error) {
 	}
 
 	for _, record := range c.constructors {
-		shouldBeSingleton, err := c.canResolveDependencies(record)
+		shouldBeSingleton, err := c.canResolveDependencies(*record)
 		if err != nil {
 			return nil, err
 		}
@@ -277,7 +280,7 @@ func (c *container) canResolveDependencies(record record, dependentServiceNames 
 
 		if !c.ignoreScopeAnalyzerErrors && record.lifetime > r.lifetime {
 			return false, newServiceBuilderError(
-				newScopeHierarchyError(record, r),
+				newScopeHierarchyError(record, *r),
 				record.lifetime,
 				record.typeName,
 			)
@@ -297,7 +300,7 @@ func (c *container) canResolveDependencies(record record, dependentServiceNames 
 			}
 		}
 
-		_, err := c.canResolveDependencies(r, dependentServiceNames...)
+		_, err := c.canResolveDependencies(*r, dependentServiceNames...)
 		if err != nil {
 			return false, err
 		}

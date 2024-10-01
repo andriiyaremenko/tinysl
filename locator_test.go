@@ -201,6 +201,8 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
+				defer GinkgoRecover()
+
 				hero1, err1 = tinysl.Get[*Hero](ctx1, sl)
 
 				Expect(err1).ShouldNot(HaveOccurred())
@@ -209,6 +211,8 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
+				defer GinkgoRecover()
+
 				hero2, err2 = tinysl.Get[*Hero](ctx2, sl)
 
 				Expect(err2).ShouldNot(HaveOccurred())
@@ -217,6 +221,8 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
+				defer GinkgoRecover()
+
 				hero3, err3 = tinysl.Get[*Hero](ctx1, sl)
 
 				Expect(err3).ShouldNot(HaveOccurred())
@@ -225,6 +231,8 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
+				defer GinkgoRecover()
+
 				_, err = tinysl.Get[NameService](ctx1, sl)
 
 				Expect(err).ShouldNot(HaveOccurred())
@@ -261,6 +269,8 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
+				defer GinkgoRecover()
+
 				hero1, err1 = tinysl.Get[*Hero](ctx1, sl)
 
 				Expect(err1).ShouldNot(HaveOccurred())
@@ -269,6 +279,8 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
+				defer GinkgoRecover()
+
 				hero2, err2 = tinysl.Get[*Hero](ctx2, sl)
 
 				Expect(err2).ShouldNot(HaveOccurred())
@@ -277,6 +289,8 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
+				defer GinkgoRecover()
+
 				hero3, err3 = tinysl.Get[*Hero](ctx1, sl)
 
 				Expect(err3).ShouldNot(HaveOccurred())
@@ -285,6 +299,8 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
+				defer GinkgoRecover()
+
 				_, err = tinysl.Get[NameService](ctx1, sl)
 
 				Expect(err).ShouldNot(HaveOccurred())

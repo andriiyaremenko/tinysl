@@ -1,49 +1,41 @@
 package tinysl
 
 import (
-	"context"
-	"fmt"
 	"sync"
 )
 
 type keyValue struct {
-	value any
-	key   string
+	value *any
+	key   uintptr
 }
 
-func getPerContextKey(ctx context.Context, key string) string {
-	if key == "" {
-		return fmt.Sprintf("%p", ctx)
-	}
-
-	return fmt.Sprintf("%p::%s", ctx, key)
+func getPerContextKey(ctxKey, key uintptr) [2]uintptr {
+	return [2]uintptr{ctxKey, key}
 }
 
 func newContextInstances(c int) *contextInstances {
 	return &contextInstances{
 		c: c,
-		m: make(map[string][]keyValue),
 	}
 }
 
 type contextInstances struct {
-	m  map[string][]keyValue
-	c  int
-	mu sync.RWMutex
+	m sync.Map
+	c int
 }
 
-func (ci *contextInstances) get(ctx context.Context, key string) (any, bool) {
-	ci.mu.RLock()
-	defer ci.mu.RUnlock()
+func slToPointer(sl []*keyValue) *[]*keyValue {
+	return &sl
+}
 
-	perCtxKey := getPerContextKey(ctx, "")
-	sl, ok := ci.m[perCtxKey]
+func (ci *contextInstances) get(ctxKey uintptr, key uintptr) (*any, bool) {
+	sl, ok := ci.m.LoadOrStore(ctxKey, slToPointer(make([]*keyValue, 0, ci.c)))
 
 	if !ok {
 		return nil, false
 	}
 
-	for _, el := range sl {
+	for _, el := range *sl.(*[]*keyValue) {
 		if el.key == key {
 			return el.value, true
 		}
@@ -52,26 +44,11 @@ func (ci *contextInstances) get(ctx context.Context, key string) (any, bool) {
 	return nil, false
 }
 
-func (ci *contextInstances) set(ctx context.Context, key string, value any) {
-	ci.mu.Lock()
-
-	perCtxKey := getPerContextKey(ctx, "")
-	keyValueVal := keyValue{key: key, value: value}
-
-	if _, ok := ci.m[perCtxKey]; ok {
-		ci.m[perCtxKey] = append(ci.m[perCtxKey], keyValueVal)
-	} else {
-		ci.m[perCtxKey] = make([]keyValue, 1, ci.c)
-		ci.m[perCtxKey][0] = keyValueVal
-	}
-
-	ci.mu.Unlock()
+func (ci *contextInstances) set(ctxKey uintptr, key uintptr, value *any) {
+	sl, _ := ci.m.Load(ctxKey)
+	*sl.(*[]*keyValue) = append(*sl.(*[]*keyValue), &keyValue{key: key, value: value})
 }
 
-func (ci *contextInstances) delete(ctx context.Context) {
-	ci.mu.Lock()
-
-	delete(ci.m, getPerContextKey(ctx, ""))
-
-	ci.mu.Unlock()
+func (ci *contextInstances) delete(ctxKey uintptr) {
+	ci.m.Delete(ctxKey)
 }

@@ -109,6 +109,8 @@ var _ = Describe("Container", func() {
 
 		wg.Add(1)
 		go func() {
+			defer GinkgoRecover()
+
 			_ = sl.Add(tinysl.PerContext, nameServiceConstructor)
 
 			wg.Done()
@@ -116,6 +118,8 @@ var _ = Describe("Container", func() {
 
 		wg.Add(1)
 		go func() {
+			defer GinkgoRecover()
+
 			_ = sl.Add(tinysl.PerContext, nameServiceConstructor)
 
 			wg.Done()
