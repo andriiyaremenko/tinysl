@@ -2,12 +2,16 @@ package tinysl
 
 import (
 	"sync"
-	"sync/atomic"
 )
 
 type keyValue struct {
 	value *any
 	key   uintptr
+}
+
+type keyValueSyncSlice struct {
+	slPtr []*keyValue
+	rwMu  sync.RWMutex
 }
 
 func getPerContextKey(ctxKey, key uintptr) [2]uintptr {
@@ -25,22 +29,19 @@ type contextInstances struct {
 	c int
 }
 
-func slToPointer(sl []*keyValue) *[]*keyValue {
-	return &sl
-}
-
 func (ci *contextInstances) get(ctxKey uintptr, key uintptr) (*any, bool) {
-	ptr, ok := ci.m.LoadOrStore(ctxKey, &atomic.Pointer[[]*keyValue]{})
+	syncSl, ok := ci.m.LoadOrStore(ctxKey, &keyValueSyncSlice{slPtr: make([]*keyValue, 0, ci.c)})
 
 	if !ok {
 		return nil, false
 	}
 
-	if slPtr := ptr.(*atomic.Pointer[[]*keyValue]).Load(); slPtr != nil {
-		for _, el := range *slPtr {
-			if el.key == key {
-				return el.value, true
-			}
+	syncSl.(*keyValueSyncSlice).rwMu.RLock()
+	defer syncSl.(*keyValueSyncSlice).rwMu.RUnlock()
+
+	for _, el := range syncSl.(*keyValueSyncSlice).slPtr {
+		if el.key == key {
+			return el.value, true
 		}
 	}
 
@@ -48,19 +49,11 @@ func (ci *contextInstances) get(ctxKey uintptr, key uintptr) (*any, bool) {
 }
 
 func (ci *contextInstances) set(ctxKey uintptr, key uintptr, value *any) {
-	ptr, _ := ci.m.Load(ctxKey)
-	ptr.(*atomic.Pointer[[]*keyValue]).Store(func() *[]*keyValue {
-		slPtr := ptr.(*atomic.Pointer[[]*keyValue]).Load()
-		val := &keyValue{key: key, value: value}
-		if slPtr == nil {
-			sl := make([]*keyValue, 1, ci.c)
-			sl[0] = val
+	syncSl, _ := ci.m.Load(ctxKey)
 
-			return &sl
-		}
-
-		return slToPointer(append(*slPtr, &keyValue{key: key, value: value}))
-	}())
+	syncSl.(*keyValueSyncSlice).rwMu.Lock()
+	syncSl.(*keyValueSyncSlice).slPtr = append(syncSl.(*keyValueSyncSlice).slPtr, &keyValue{value, key})
+	syncSl.(*keyValueSyncSlice).rwMu.Unlock()
 }
 
 func (ci *contextInstances) delete(ctxKey uintptr) {
