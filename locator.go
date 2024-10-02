@@ -32,8 +32,8 @@ loop:
 		case fn := <-singletonsCleanupCh:
 			oldFn := cleanup
 			cleanup = func() {
-				oldFn()
 				fn()
+				oldFn()
 			}
 		case <-ctx.Done():
 			cleanup.CallWithRecovery(Singleton)
@@ -69,8 +69,8 @@ loop:
 			if ok {
 				oldFn := fn
 				fn = func() {
-					oldFn()
 					rec.fn()
+					oldFn()
 				}
 			} else {
 				fn = rec.fn
@@ -211,7 +211,7 @@ func (l *locator) Get(ctx context.Context, serviceName string) (any, error) {
 	}
 }
 
-func (l *locator) get(ctx context.Context, record *record) (service any, cleanup Cleanup, err error) {
+func (l *locator) get(ctx context.Context, record *record) (service any, cleanups Cleanup, err error) {
 	defer func() {
 		if rp := recover(); rp != nil {
 			err = newServiceBuilderError(
@@ -330,17 +330,6 @@ func (l *locator) getPerContext(ctx context.Context, record *record, serviceName
 	ctxKey := reflect.ValueOf(ctx).Pointer()
 	scope, ok := l.perContext.get(ctxKey, record.id)
 
-	if !ok {
-		go func() {
-			l.perContextCleanUpCh <- cleanupRecord{
-				ctx: ctx,
-				fn: func() {
-					l.perContext.delete(ctxKey)
-				},
-			}
-		}()
-	}
-
 	scope.lock()
 	defer scope.unlock()
 
@@ -353,7 +342,19 @@ func (l *locator) getPerContext(ctx context.Context, record *record, serviceName
 		return nil, err
 	}
 
-	go func() { l.perContextCleanUpCh <- cleanupRecord{ctx: ctx, fn: cleanUp} }()
+	if !ok {
+		go func() {
+			l.perContextCleanUpCh <- cleanupRecord{
+				ctx: ctx,
+				fn: func() {
+					cleanUp()
+					l.perContext.delete(ctxKey)
+				},
+			}
+		}()
+	} else {
+		go func() { l.perContextCleanUpCh <- cleanupRecord{ctx: ctx, fn: cleanUp} }()
+	}
 
 	scope.value = &service
 
