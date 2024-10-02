@@ -141,16 +141,16 @@ func newLocator(ctx context.Context, constructors map[string]*record, size uint)
 		go perContextCleanupWorker(ctx, perContextCleanupCh, &wg)
 	}
 
-	perCtxLen := 0
+	perCtxIDs := make([]uintptr, 0)
 	for _, rec := range constructors {
 		if rec.lifetime == PerContext {
-			perCtxLen++
+			perCtxIDs = append(perCtxIDs, rec.id)
 		}
 	}
 
 	return &locator{
 		constructors:        constructors,
-		perContext:          newContextInstances(perCtxLen),
+		perContext:          newContextInstances(perCtxIDs),
 		singletonsCleanupCh: singletonsCleanupCh,
 		perContextCleanUpCh: perContextCleanupCh,
 	}
@@ -328,30 +328,24 @@ func (l *locator) getPerContext(ctx context.Context, record *record, serviceName
 	}
 
 	ctxKey := reflect.ValueOf(ctx).Pointer()
-	perContextServiceKey := getPerContextKey(ctxKey, record.id)
+	scope, ok := l.perContext.get(ctxKey, record.id)
 
-	_, ok := l.pcMu.LoadOrStore(perContextServiceKey[0], struct{}{})
 	if !ok {
 		go func() {
 			l.perContextCleanUpCh <- cleanupRecord{
 				ctx: ctx,
 				fn: func() {
-					l.pcMu.Delete(perContextServiceKey[0])
-					l.pcMu.Delete(perContextServiceKey)
 					l.perContext.delete(ctxKey)
 				},
 			}
 		}()
 	}
 
-	mu, ok := l.pcMu.LoadOrStore(perContextServiceKey, new(sync.Mutex))
+	scope.lock()
+	defer scope.unlock()
 
-	mu.(*sync.Mutex).Lock()
-	defer mu.(*sync.Mutex).Unlock()
-
-	servicePtr, ok := l.perContext.get(ctxKey, record.id)
-	if ok {
-		return *servicePtr, nil
+	if !scope.empty() {
+		return *scope.value, nil
 	}
 
 	service, cleanUp, err := l.get(ctx, record)
@@ -361,7 +355,7 @@ func (l *locator) getPerContext(ctx context.Context, record *record, serviceName
 
 	go func() { l.perContextCleanUpCh <- cleanupRecord{ctx: ctx, fn: cleanUp} }()
 
-	l.perContext.set(ctxKey, record.id, &service)
+	scope.value = &service
 
 	return service, nil
 }

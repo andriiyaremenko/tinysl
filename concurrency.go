@@ -1,59 +1,60 @@
 package tinysl
 
 import (
+	"fmt"
 	"sync"
 )
 
-type keyValue struct {
+type serviceScope struct {
 	value *any
 	key   uintptr
+	mu    sync.Mutex
 }
 
-type keyValueSyncSlice struct {
-	slPtr []*keyValue
-	rwMu  sync.RWMutex
+func (cs *serviceScope) empty() bool {
+	return cs.value == nil
 }
 
-func getPerContextKey(ctxKey, key uintptr) [2]uintptr {
-	return [2]uintptr{ctxKey, key}
+func (cs *serviceScope) lock() {
+	cs.mu.Lock()
 }
 
-func newContextInstances(c int) *contextInstances {
+func (cs *serviceScope) unlock() {
+	cs.mu.Unlock()
+}
+
+func newContextInstances(keys []uintptr) *contextInstances {
 	return &contextInstances{
-		c: c,
+		keys: keys,
 	}
 }
 
 type contextInstances struct {
-	m sync.Map
-	c int
+	m    sync.Map
+	keys []uintptr
 }
 
-func (ci *contextInstances) get(ctxKey uintptr, key uintptr) (*any, bool) {
-	syncSl, ok := ci.m.LoadOrStore(ctxKey, &keyValueSyncSlice{slPtr: make([]*keyValue, 0, ci.c)})
+func newContextScope(keys []uintptr) []*serviceScope {
+	services := make([]*serviceScope, len(keys))
 
-	if !ok {
-		return nil, false
+	for i, key := range keys {
+		services[i] = &serviceScope{key: key}
 	}
 
-	syncSl.(*keyValueSyncSlice).rwMu.RLock()
-	defer syncSl.(*keyValueSyncSlice).rwMu.RUnlock()
+	return services
+}
 
-	for _, el := range syncSl.(*keyValueSyncSlice).slPtr {
+func (ci *contextInstances) get(ctxKey uintptr, key uintptr) (*serviceScope, bool) {
+	servicesVal, ok := ci.m.LoadOrStore(ctxKey, newContextScope(ci.keys))
+	services := servicesVal.([]*serviceScope)
+
+	for _, el := range services {
 		if el.key == key {
-			return el.value, true
+			return el, ok
 		}
 	}
 
-	return nil, false
-}
-
-func (ci *contextInstances) set(ctxKey uintptr, key uintptr, value *any) {
-	syncSl, _ := ci.m.Load(ctxKey)
-
-	syncSl.(*keyValueSyncSlice).rwMu.Lock()
-	syncSl.(*keyValueSyncSlice).slPtr = append(syncSl.(*keyValueSyncSlice).slPtr, &keyValue{value, key})
-	syncSl.(*keyValueSyncSlice).rwMu.Unlock()
+	panic(fmt.Sprintf("service key %d is not found", key))
 }
 
 func (ci *contextInstances) delete(ctxKey uintptr) {
