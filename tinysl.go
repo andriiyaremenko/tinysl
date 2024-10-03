@@ -10,10 +10,7 @@ import (
 
 const (
 	// For Transient service new instance is returned.
-	//
-	// Deprecated: Transient should be almost never be used
-	// and in cornere cases when it is needed it can be easily replaced with PerContext lifetime
-	Transient Lifetime = iota - 1
+	Transient Lifetime = iota
 	// For PerContext service same instance is returned for same context.Context.
 	PerContext
 	// For Singleton service same instance is returned always.
@@ -48,13 +45,13 @@ func (c Cleanup) CallWithRecovery(l Lifetime) {
 	c()
 }
 
-type ErrorLogger interface {
+type Logger interface {
 	Error(msg string, args ...any)
 }
 
-var errorLogger ErrorLogger = slog.Default()
+var errorLogger Logger = slog.Default()
 
-func SetDefaultErrorLogger(l ErrorLogger) {
+func SetDefaultErrorLogger(l Logger) {
 	errorLogger = l
 }
 
@@ -64,7 +61,7 @@ type ServiceLocatorBuilder interface {
 }
 
 type ScopeAnalyzer interface {
-	IgnoreScopeAnalyzerErrors() ServiceLocatorBuilder
+	TurnOffUseSingletonWarnings() ServiceLocatorBuilder
 }
 
 // Container keeps services constructors and lifetime scopes.

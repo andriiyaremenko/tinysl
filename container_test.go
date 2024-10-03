@@ -1,8 +1,10 @@
 package tinysl_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -275,32 +277,61 @@ var _ = Describe("Container", func() {
 	})
 
 	It("should return error for constructor if service can be made Singleton", func() {
+		var buf bytes.Buffer
+
+		slog.SetDefault(
+			slog.New(
+				slog.NewTextHandler(
+					&buf,
+					&slog.HandlerOptions{
+						ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+							if a.Key == slog.TimeKey && len(groups) == 0 {
+								return slog.Attr{}
+							}
+							return a
+						},
+					},
+				),
+			),
+		)
 		_, err := tinysl.
 			Add(tinysl.PerContext, tableTimerConstructor).
 			Add(tinysl.Singleton, nameServiceConstructor).
 			ServiceLocator()
 
-		Expect(err).Should(HaveOccurred())
-		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.ServiceBuilderError)))
-		Expect(errors.Unwrap(err)).Should(MatchError(tinysl.ErrShouldBeSingleton))
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(buf.String()).To(Equal("level=INFO msg=\"ERROR your dependency hierarchy can be optimised error=\\\"PerContext *tinysl_test.TableTimer should be a Singleton\\\"\"\n"))
+		slog.SetDefault(slog.Default())
 	})
 
 	It("should ignore scope analyzer errors if said so", func() {
+		var buf bytes.Buffer
+
+		slog.SetDefault(
+			slog.New(
+				slog.NewTextHandler(
+					&buf,
+					&slog.HandlerOptions{
+						ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+							if a.Key == slog.TimeKey && len(groups) == 0 {
+								return slog.Attr{}
+							}
+							return a
+						},
+					},
+				),
+			),
+		)
+
 		_, err := tinysl.
 			Add(tinysl.PerContext, tableTimerConstructor).
-			Add(tinysl.Singleton, nameServiceConstructor).
-			IgnoreScopeAnalyzerErrors().
-			ServiceLocator()
-
-		Expect(err).ShouldNot(HaveOccurred())
-
-		_, err = tinysl.
-			Add(tinysl.PerContext, tableTimerConstructor).
 			Add(tinysl.Transient, nameServiceConstructor).
-			IgnoreScopeAnalyzerErrors().
+			TurnOffUseSingletonWarnings().
 			ServiceLocator()
 
 		Expect(err).ShouldNot(HaveOccurred())
+		Expect(buf.String()).To(BeEmpty())
+		slog.SetDefault(slog.Default())
 	})
 
 	It("should return first encountered error", func() {

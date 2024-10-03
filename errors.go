@@ -9,12 +9,12 @@ import (
 const (
 	contextDepName = "context.Context"
 
-	constructorTypeStr            string = "func(T1, T2, ...) [T|(T, error)|(T, func(), error)]"
-	constructorWithContextTypeStr string = "func(context.Context, T1, T2, ...) [T|(T, error)|(T, func(), error)]"
+	constructorTypeStr            string = "func(T1, ...) [T|(T, error)|(T, func(), error)]"
+	constructorWithContextTypeStr string = "func(context.Context, T1, ...) [T|(T, error)|(T, func(), error)]"
 
 	singletonPossibleConstructor  string = constructorTypeStr
 	perContextPossibleConstructor string = constructorTypeStr + " | " + constructorWithContextTypeStr
-	transientPossibleConstructor  string = constructorTypeStr + " | " + constructorWithContextTypeStr
+	transientPossibleConstructor  string = "func(T1, ...) [T|(T, error)]" + " | " + "func(context.Context, T1, ...) [T|(T, error)]"
 )
 
 var (
@@ -28,7 +28,6 @@ var (
 	ErrIWrongTType          = fmt.Errorf("I can be used only with T as a struct")
 	ErrIWrongIType          = fmt.Errorf("I can be used only with I as an interface")
 	ErrITDoesNotImplementI  = fmt.Errorf("I can only be used with T if T or *T implements I")
-	ErrShouldBeSingleton    = fmt.Errorf("should be singleton")
 )
 
 func newConstructorUnsupportedError(constructorType reflect.Type, lifetime Lifetime) error {

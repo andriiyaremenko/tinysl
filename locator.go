@@ -89,15 +89,26 @@ type cleanupNodeRecord struct {
 	dependencies []string
 }
 
-func buildCleanupNodes(records map[string]*record, lifetime Lifetime) cleanupNode {
+func buildCleanupNodes(records []*record) cleanupNode {
+	hasNoDeps := true
+	for _, rec := range records {
+		if rec.constructorType == withErrorAndCleanUp {
+			hasNoDeps = false
+		}
+	}
+
+	if hasNoDeps {
+		return singleCleanupFn(func() {})
+	}
+
+	if len(records) == 0 {
+		return singleCleanupFn(func() {})
+	}
+
 	headNode := &cleanupNodeImpl{fn: func() {}}
 
 	nodes := make([]*cleanupNodeRecord, 0)
 	for _, rec := range records {
-		if rec.lifetime != lifetime {
-			continue
-		}
-
 		nodes = append(nodes, buildCleanupNodeRecord(rec, records))
 	}
 
@@ -106,10 +117,6 @@ func buildCleanupNodes(records map[string]*record, lifetime Lifetime) cleanupNod
 	}
 
 	headNode.dependants = filterOnlyTopNodes(nodes)
-
-	if len(headNode.dependants) == 0 {
-		return singleCleanupFn(func() {})
-	}
 
 	return headNode
 }
@@ -134,7 +141,7 @@ func buildCleanupNodeRecordDependants(node *cleanupNodeRecord, nodes []*cleanupN
 	}
 }
 
-func buildCleanupNodeRecord(rec *record, records map[string]*record) *cleanupNodeRecord {
+func buildCleanupNodeRecord(rec *record, records []*record) *cleanupNodeRecord {
 	node := &cleanupNodeImpl{
 		fn: func() {},
 		id: rec.id,
@@ -265,19 +272,32 @@ loop:
 	wg.Done()
 }
 
-func newLocator(ctx context.Context, constructors map[string]*record, size uint) ServiceLocator {
+func newLocator(ctx context.Context, constructors map[string]*record) ServiceLocator {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	singletonsCleanupCh := make(chan cleanupNodeUpdate)
 	perContextCleanupCh := make(chan cleanupRecord)
 	var wg sync.WaitGroup
 
-	go singletonCleanupWorker(ctx, cancel, buildCleanupNodes(constructors, Singleton), singletonsCleanupCh, &wg)
+	singletons := make([]*record, 0)
+	perContexts := make([]*record, 0)
+
+	perCtxIDs := make([]uintptr, 0)
+	for _, rec := range constructors {
+		switch rec.lifetime {
+		case Singleton:
+			singletons = append(singletons, rec)
+		case PerContext:
+			perCtxIDs = append(perCtxIDs, rec.id)
+			perContexts = append(perContexts, rec)
+		}
+	}
+	go singletonCleanupWorker(ctx, cancel, buildCleanupNodes(singletons), singletonsCleanupCh, &wg)
 
 	wg.Add(1)
 	go perContextCleanupWorker(
 		ctx,
 		func(ctx context.Context) cleanupNode {
-			n := buildCleanupNodes(constructors, PerContext)
+			n := buildCleanupNodes(perContexts)
 			n.setId(reflect.ValueOf(ctx).Pointer())
 
 			return n
@@ -285,13 +305,6 @@ func newLocator(ctx context.Context, constructors map[string]*record, size uint)
 		perContextCleanupCh,
 		&wg,
 	)
-
-	perCtxIDs := make([]uintptr, 0)
-	for _, rec := range constructors {
-		if rec.lifetime == PerContext {
-			perCtxIDs = append(perCtxIDs, rec.id)
-		}
-	}
 
 	return &locator{
 		constructors:        constructors,

@@ -2,45 +2,34 @@ package tinysl
 
 import (
 	"context"
+	"fmt"
 	"reflect"
-	"runtime"
 	"sync"
 )
 
 var _ Container = new(container)
 
 type ContainerConfiguration struct {
-	Ctx            context.Context
-	WorkerPoolSize uint
+	Ctx context.Context
 }
 
 type ContainerOption func(*ContainerConfiguration)
 
-var (
-	WithWorkerPoolSize = func(size uint) ContainerOption {
-		return func(opt *ContainerConfiguration) {
-			if size > 0 {
-				opt.WorkerPoolSize = size
-			}
-		}
-	}
-	WithSingletonCleanupContext = func(ctx context.Context) ContainerOption {
-		return func(opt *ContainerConfiguration) { opt.Ctx = ctx }
-	}
-)
+var WithSingletonCleanupContext = func(ctx context.Context) ContainerOption {
+	return func(opt *ContainerConfiguration) { opt.Ctx = ctx }
+}
 
 // Returns new Container.
 func New(opts ...ContainerOption) Container {
 	conf := ContainerConfiguration{
-		Ctx:            context.Background(),
-		WorkerPoolSize: uint(runtime.NumCPU()),
+		Ctx: context.Background(),
 	}
 
 	for _, opt := range opts {
 		opt(&conf)
 	}
 
-	return newContainer(conf.Ctx, conf.WorkerPoolSize)
+	return newContainer(conf.Ctx)
 }
 
 // Creates new Container, adds constructor and returns newly-created container.
@@ -57,17 +46,17 @@ const (
 )
 
 type record struct {
-	id               uintptr
 	constructor      any
 	typeName         string
 	dependencies     []string
+	id               uintptr
 	constructorType  constructorType
 	lifetime         Lifetime
 	dependsOnContext bool
 }
 
-func newContainer(ctx context.Context, workerPoolSize uint) *container {
-	return &container{constructors: make(map[string]*record), ctx: ctx, workerPoolSize: workerPoolSize}
+func newContainer(ctx context.Context) *container {
+	return &container{constructors: make(map[string]*record), ctx: ctx}
 }
 
 type container struct {
@@ -75,12 +64,11 @@ type container struct {
 	err                       error
 	constructors              map[string]*record
 	constructorsRWM           sync.RWMutex
-	workerPoolSize            uint
 	ignoreScopeAnalyzerErrors bool
 }
 
-// IgnoreScopeAnalyzerErrors implements Container.
-func (c *container) IgnoreScopeAnalyzerErrors() ServiceLocatorBuilder {
+// TurnOffUseSingletonWarnings implements Container.
+func (c *container) TurnOffUseSingletonWarnings() ServiceLocatorBuilder {
 	c.ignoreScopeAnalyzerErrors = true
 	return c
 }
@@ -187,6 +175,12 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 
 			return c
 		}
+
+		if lifetime == Transient {
+			c.err = newConstructorUnsupportedError(t, lifetime)
+
+			return c
+		}
 	default:
 		c.err = newConstructorUnsupportedError(t, lifetime)
 
@@ -249,15 +243,14 @@ func (c *container) ServiceLocator() (ServiceLocator, error) {
 		}
 
 		if !c.ignoreScopeAnalyzerErrors && shouldBeSingleton {
-			return nil, newServiceBuilderError(
-				ErrShouldBeSingleton,
-				record.lifetime,
-				record.typeName,
+			errorLogger.Error(
+				"your dependency hierarchy can be optimised",
+				"error", fmt.Errorf("%s %s should be a Singleton", record.lifetime, record.typeName),
 			)
 		}
 	}
 
-	return newLocator(c.ctx, c.constructors, c.workerPoolSize), nil
+	return newLocator(c.ctx, c.constructors), nil
 }
 
 func (c *container) canResolveDependencies(record record, dependentServiceNames ...string) (bool, error) {

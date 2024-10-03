@@ -82,7 +82,7 @@ GetMyRequestHandler(lazy)
 ### Lifetime constants:
  * `tinysl.PerContext`
  * `tinysl.Singleton`
- * `tinysl.Transient` - will be deprecated
+ * `tinysl.Transient`
 
 ### Constructor types that can be used:
  * `func(T1, T2, ...) [T|(T, error)|(T, Cleanup, error)]` - for PerContext, Transient and Singleton
