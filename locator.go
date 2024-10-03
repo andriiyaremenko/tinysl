@@ -1,3 +1,8 @@
+// NOTE: building dependency graph for PerContext for every service
+// and assembling them within single call to (*locator).getSingleton
+// proved to be ineffective compared to existing implementation (memory and speed wise).
+// Turns out calling sync.Map for every context with additional data structures that comes with dependency graph
+// is more expensive compared to calling sync.Map for every PerContext service without additional data structures.
 package tinysl
 
 import (
