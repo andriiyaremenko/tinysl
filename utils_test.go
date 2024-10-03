@@ -119,6 +119,12 @@ func heroConstructor(nameService NameService) (*Hero, error) {
 	return &Hero{nameService.Name()}, nil
 }
 
+func nameServiceConstructorWithCleanup(cleanup func()) func() (NameService, func(), error) {
+	return func() (NameService, func(), error) {
+		return NameProvider("bob"), cleanup, nil
+	}
+}
+
 func heroConstructorWithCleanup(cleanup func()) func(nameService NameService) (*Hero, func(), error) {
 	return func(nameService NameService) (*Hero, func(), error) {
 		return &Hero{nameService.Name()}, cleanup, nil

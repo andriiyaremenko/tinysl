@@ -554,6 +554,32 @@ var _ = Describe("ServiceLocator", func() {
 		Eventually(cleaned).Should(BeClosed())
 	})
 
+	It("should keep cleanup order for Singleton", func() {
+		appCtx := context.Background()
+		appCtx, cancel := context.WithCancel(appCtx)
+
+		chFirst := make(chan time.Time)
+		chLast := make(chan time.Time)
+		sl, err := tinysl.
+			New(tinysl.WithSingletonCleanupContext(appCtx)).
+			Add(tinysl.Singleton, nameServiceConstructorWithCleanup(func() { chLast <- time.Now() })).
+			Add(tinysl.Singleton, heroConstructorWithCleanup(func() { chFirst <- time.Now() })).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		_, err = tinysl.Get[*Hero](ctx, sl)
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		time.Sleep(time.Millisecond)
+		cancel()
+		var first, last time.Time
+		Eventually(chFirst).Should(Receive(&first))
+		Eventually(chLast).Should(Receive(&last))
+		Expect(first.Before(last)).To(BeTrue())
+	})
+
 	It("should work with constructor without error", func() {
 		sl, err := tinysl.
 			Add(tinysl.Singleton, func() NameProvider { return NameProvider("Bob") }).
