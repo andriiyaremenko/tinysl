@@ -554,6 +554,29 @@ var _ = Describe("ServiceLocator", func() {
 		Eventually(cleaned).Should(BeClosed())
 	})
 
+	It("should keep cleanup order for PerContext", func() {
+		chFirst := make(chan time.Time)
+		chLast := make(chan time.Time)
+		sl, err := tinysl.
+			Add(tinysl.PerContext, nameServiceConstructorWithCleanup(func() { chLast <- time.Now() })).
+			Add(tinysl.PerContext, heroConstructorWithCleanup(func() { chFirst <- time.Now() })).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		ctx, cancel := context.WithCancel(ctx)
+		_, err = tinysl.Get[*Hero](ctx, sl)
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		time.Sleep(time.Millisecond)
+		cancel()
+		var first, last time.Time
+		Eventually(chFirst).Should(Receive(&first))
+		Eventually(chLast).Should(Receive(&last))
+		Expect(first.Before(last)).To(BeTrue())
+	})
+
 	It("should keep cleanup order for Singleton", func() {
 		appCtx := context.Background()
 		appCtx, cancel := context.WithCancel(appCtx)
