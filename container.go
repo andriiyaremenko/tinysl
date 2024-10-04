@@ -10,14 +10,19 @@ import (
 var _ Container = new(container)
 
 type ContainerConfiguration struct {
-	Ctx context.Context
+	Ctx                         context.Context
+	SilenceUseSingletonWarnings bool
 }
 
 type ContainerOption func(*ContainerConfiguration)
 
-var WithSingletonCleanupContext = func(ctx context.Context) ContainerOption {
-	return func(opt *ContainerConfiguration) { opt.Ctx = ctx }
-}
+var (
+	WithSingletonCleanupContext = func(ctx context.Context) ContainerOption {
+		return func(opt *ContainerConfiguration) { opt.Ctx = ctx }
+	}
+
+	SilenceUseSingletonWarnings ContainerOption = func(opt *ContainerConfiguration) { opt.SilenceUseSingletonWarnings = true }
+)
 
 // Returns new Container.
 func New(opts ...ContainerOption) Container {
@@ -29,7 +34,7 @@ func New(opts ...ContainerOption) Container {
 		opt(&conf)
 	}
 
-	return newContainer(conf.Ctx)
+	return newContainer(conf.Ctx, conf.SilenceUseSingletonWarnings)
 }
 
 // Creates new Container, adds constructor and returns newly-created container.
@@ -55,8 +60,8 @@ type record struct {
 	dependsOnContext bool
 }
 
-func newContainer(ctx context.Context) *container {
-	return &container{constructors: make(map[string]*record), ctx: ctx}
+func newContainer(ctx context.Context, silenceUseSingletonWarnings bool) *container {
+	return &container{constructors: make(map[string]*record), ctx: ctx, ignoreScopeAnalyzerErrors: silenceUseSingletonWarnings}
 }
 
 type container struct {
@@ -65,12 +70,6 @@ type container struct {
 	constructors              map[string]*record
 	constructorsRWM           sync.RWMutex
 	ignoreScopeAnalyzerErrors bool
-}
-
-// TurnOffUseSingletonWarnings implements Container.
-func (c *container) TurnOffUseSingletonWarnings() ServiceLocatorBuilder {
-	c.ignoreScopeAnalyzerErrors = true
-	return c
 }
 
 func (c *container) Add(lifetime Lifetime, constructor any) Container {
@@ -243,7 +242,7 @@ func (c *container) ServiceLocator() (ServiceLocator, error) {
 		}
 
 		if !c.ignoreScopeAnalyzerErrors && shouldBeSingleton {
-			errorLogger.Error(
+			logger().Error(
 				"your dependency hierarchy can be optimised",
 				"error", fmt.Errorf("%s %s should be a Singleton", record.lifetime, record.typeName),
 			)

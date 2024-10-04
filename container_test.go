@@ -324,9 +324,9 @@ var _ = Describe("Container", func() {
 		)
 
 		_, err := tinysl.
+			New(tinysl.SilenceUseSingletonWarnings).
 			Add(tinysl.PerContext, tableTimerConstructor).
 			Add(tinysl.Transient, nameServiceConstructor).
-			TurnOffUseSingletonWarnings().
 			ServiceLocator()
 
 		Expect(err).ShouldNot(HaveOccurred())

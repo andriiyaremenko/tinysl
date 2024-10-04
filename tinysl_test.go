@@ -103,16 +103,31 @@ var _ = Describe("Functions", func() {
 
 			defer cancel()
 
+			type key string
+			var nameKey key
+
+			middleware := func(s NameService) func(http.Handler) http.Handler {
+				return func(next http.Handler) http.Handler {
+					return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						ctx := context.WithValue(r.Context(), nameKey, s.Name())
+						next.ServeHTTP(w, r.WithContext(ctx))
+					})
+				}
+			}
+
 			handler := tinysl.DecorateHandler(
 				sl, func(h HelloService) http.HandlerFunc {
 					return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						Expect(r.Context().Value(nameKey)).NotTo(BeNil())
+						Expect(r.Context().Value(nameKey)).To(Equal("Bob"))
+
 						_, _ = w.Write([]byte(h.Hello()))
 					})
 				})
 
 			Expect(sl.Err()).ShouldNot(HaveOccurred())
 
-			server := httptest.NewServer(handler)
+			server := httptest.NewServer(tinysl.DecorateMiddleware(sl, middleware)(handler))
 			resp, err := http.Get(server.URL)
 
 			Expect(err).ShouldNot(HaveOccurred())

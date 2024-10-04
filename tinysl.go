@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"reflect"
+	"sync/atomic"
 )
 
 const (
@@ -37,42 +38,44 @@ type Cleanup func()
 func (c Cleanup) CallWithRecovery(l Lifetime) {
 	defer func() {
 		if rp := recover(); rp != nil {
-			errorLogger.Error(
+			logger().Error(
 				fmt.Sprintf("recovered from panic during %s cleanup", l),
 				"error", fmt.Errorf("cleanup %s: recovered from panic: %v", l, rp))
 		}
 	}()
+
 	c()
+}
+
+func init() {
+	loggerPtr.Store(func() *Logger { var l Logger = slog.Default(); return &l }())
 }
 
 type Logger interface {
 	Error(msg string, args ...any)
 }
 
-var errorLogger Logger = slog.Default()
+var loggerPtr atomic.Pointer[Logger]
 
-func SetDefaultErrorLogger(l Logger) {
-	errorLogger = l
+func logger() Logger {
+	return *loggerPtr.Load()
 }
 
-type ServiceLocatorBuilder interface {
-	// Returns ServiceLocator or error.
-	ServiceLocator() (sl ServiceLocator, err error)
-}
-
-type ScopeAnalyzer interface {
-	TurnOffUseSingletonWarnings() ServiceLocatorBuilder
+func SetLogger(l Logger) {
+	if l != nil {
+		loggerPtr.Store(&l)
+	}
 }
 
 // Container keeps services constructors and lifetime scopes.
 type Container interface {
-	ServiceLocatorBuilder
-	ScopeAnalyzer
 	// Adds constructor of service with lifetime scope.
 	// For Singleton constructor should be of type func(T1, T2, ...) (T, error),
 	// for Transient and PerContext constructor should be of type func(context.Context, T1, T2, ...),
 	// where T is exact type of service.
 	Add(lifetime Lifetime, constructor any) Container
+	// Returns ServiceLocator or error.
+	ServiceLocator() (sl ServiceLocator, err error)
 }
 
 // ServiceLocator allows fetching service using its type name.
@@ -108,6 +111,29 @@ func MustGet[T any](ctx context.Context, sl ServiceLocator) T {
 	}
 
 	return s
+}
+
+// Your HTTP middleware function decorator.
+// Registers an error if no constructor was found with ServiceLocator
+// which should be checked with ServiceLocator.Err().
+func DecorateMiddleware[T any](sl ServiceLocator, fn func(T) func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	serviceType := reflect.TypeOf(new(T))
+	serviceName := serviceType.Elem().String()
+
+	sl.EnsureAvailable(serviceName)
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+
+			s, err := sl.Get(ctx, serviceName)
+			if err != nil {
+				panic(err)
+			}
+
+			fn(s.(T))(next).ServeHTTP(w, r)
+		})
+	}
 }
 
 // Your HTTP handler function decorator.
