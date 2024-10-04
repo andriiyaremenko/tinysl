@@ -18,6 +18,12 @@ import (
 	"time"
 )
 
+var reflectValuesPool = sync.Pool{
+	New: func() any {
+		return make([]reflect.Value, 0, 1)
+	},
+}
+
 var _ ServiceLocator = new(locator)
 
 type cleanupRecord struct {
@@ -315,7 +321,6 @@ type locator struct {
 	singletonsCleanupCh chan<- cleanupNodeUpdate
 	perContextCleanUpCh chan<- cleanupRecord
 	sMu                 sync.Map
-	pcMu                sync.Map
 	singletons          sync.Map
 	errRMu              sync.RWMutex
 }
@@ -376,7 +381,11 @@ func (l *locator) get(ctx context.Context, record *record) (service any, cleanup
 
 	constructor := record.constructor
 	fn := reflect.ValueOf(constructor)
-	args := make([]reflect.Value, 0, 1)
+	args := reflectValuesPool.Get().([]reflect.Value)
+	defer func() {
+		args = args[:0]
+		reflectValuesPool.Put(args)
+	}()
 
 	for i, dep := range record.dependencies {
 		if i == 0 && dep == contextDepName {
@@ -467,7 +476,10 @@ func (l *locator) getSingleton(ctx context.Context, record *record) (any, error)
 		go func() {
 			l.singletonsCleanupCh <- cleanupNodeUpdate{
 				id: record.id,
-				fn: cleanUp,
+				fn: func() {
+					cleanUp()
+					l.sMu.Delete(record.id)
+				},
 			}
 		}()
 	}
