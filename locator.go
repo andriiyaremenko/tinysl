@@ -246,10 +246,8 @@ loop:
 				default:
 				}
 
-				for i := range ctxList {
-					j := rand.IntN(i + 1)
-					ctxList[i], ctxList[j] = ctxList[j], ctxList[i]
-				}
+				j := rand.IntN(len(ctxList))
+				ctxList[0], ctxList[j] = ctxList[j], ctxList[0]
 
 				nextCtx = ctxList[0]
 			}
