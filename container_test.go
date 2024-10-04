@@ -35,6 +35,17 @@ var _ = Describe("Container", func() {
 		Expect(err).ShouldNot(HaveOccurred())
 	})
 
+	It("should replace constructor", func() {
+		_, err := tinysl.
+			Add(tinysl.PerContext, nameServiceConstructor).
+			Add(tinysl.PerContext, heroConstructor).
+			Replace(func() NameService {
+				return NameProvider("Sam")
+			}).
+			ServiceLocator()
+		Expect(err).ShouldNot(HaveOccurred())
+	})
+
 	It("should register PerContext constructor dependant on context.Context", func() {
 		_, err := tinysl.
 			Add(tinysl.PerContext, tableTimerConstructor).

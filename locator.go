@@ -101,10 +101,6 @@ func buildCleanupNodes(records []*record) cleanupNode {
 		return singleCleanupFn(func() {})
 	}
 
-	if len(records) == 0 {
-		return singleCleanupFn(func() {})
-	}
-
 	headNode := &cleanupNodeImpl{fn: func() {}}
 
 	nodes := make([]*cleanupNodeRecord, 0)

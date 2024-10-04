@@ -74,6 +74,8 @@ type Container interface {
 	// for Transient and PerContext constructor should be of type func(context.Context, T1, T2, ...),
 	// where T is exact type of service.
 	Add(lifetime Lifetime, constructor any) Container
+	// Replaces constructor of service with same lifetime as registered before.
+	Replace(constructor any) Container
 	// Returns ServiceLocator or error.
 	ServiceLocator() (sl ServiceLocator, err error)
 }

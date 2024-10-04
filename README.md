@@ -78,6 +78,8 @@ GetMyRequestHandler(lazy)
  * `tinysl.MustGet`
  * `tinysl.Prepare`
  * `tinysl.DecorateHandler`
+ * `tinysl.DecorateMiddleware`
+ * `tinysl.SetLogger`
 
 ### Lifetime constants:
  * `tinysl.PerContext`
@@ -85,8 +87,10 @@ GetMyRequestHandler(lazy)
  * `tinysl.Transient`
 
 ### Constructor types that can be used:
- * `func(T1, T2, ...) [T|(T, error)|(T, Cleanup, error)]` - for PerContext, Transient and Singleton
- * `func(context.Context, T1, T2, ...) [T|(T, error)|(T, Cleanup, error)]` - for PerContext and Transient only    
+ * `func(T1, T2, ...) [T|(T, error)]` - for Transient
+ * `func(context.Context, T1, T2, ...) [T|(T, error)]` - for Transient
+ * `func(T1, T2, ...) [T|(T, error)|(T, Cleanup, error)]` - for PerContext and Singleton
+ * `func(context.Context, T1, T2, ...) [T|(T, error)|(T, Cleanup, error)]` - for PerContext only
 
 ### Public fields constructor
  * `tinysl.T[Type]` - would return `Type` instance with filled public fields using registered constructors.

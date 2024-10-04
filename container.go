@@ -227,6 +227,56 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 	return c
 }
 
+func (c *container) Replace(constructor any) Container {
+	if c.err != nil {
+		return c
+	}
+
+	var serviceType string
+	if construct, ok := constructor.(func() (propertyFiller, error)); ok {
+		constructor, err := construct()
+		if err != nil {
+			c.err = err
+
+			return c
+		}
+
+		t := constructor.Type
+		serviceType = t.String()
+	} else {
+		t := reflect.TypeOf(constructor)
+
+		if t.Kind() != reflect.Func {
+			c.err = newBadConstructorError(ErrConstructorNotAFunction, t)
+
+			return c
+		}
+
+		if t.IsVariadic() {
+			c.err = newBadConstructorError(ErrVariadicConstructor, t)
+
+			return c
+		}
+
+		serviceType = t.Out(0).String()
+
+	}
+
+	c.constructorsRWM.Lock()
+	s, ok := c.constructors[serviceType]
+
+	if !ok {
+		c.err = newBadConstructorError(newConstructorNotFoundError(serviceType), reflect.TypeOf(constructor))
+		c.constructorsRWM.Unlock()
+		return c
+	}
+
+	delete(c.constructors, serviceType)
+	c.constructorsRWM.Unlock()
+
+	return c.Add(s.lifetime, constructor)
+}
+
 func (c *container) ServiceLocator() (ServiceLocator, error) {
 	c.constructorsRWM.RLock()
 	defer c.constructorsRWM.RUnlock()
