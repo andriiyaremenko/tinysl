@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -526,7 +527,6 @@ var _ = Describe("ServiceLocator", func() {
 		_, err = tinysl.Get[*Hero](ctx, sl)
 
 		Expect(err).ShouldNot(HaveOccurred())
-
 		time.Sleep(time.Millisecond)
 		cancel()
 		Eventually(cleaned).Should(BeClosed())
@@ -548,7 +548,6 @@ var _ = Describe("ServiceLocator", func() {
 		_, err = tinysl.Get[*Hero](ctx, sl)
 
 		Expect(err).ShouldNot(HaveOccurred())
-
 		time.Sleep(time.Millisecond)
 		cancel()
 		Eventually(cleaned).Should(BeClosed())
@@ -571,7 +570,9 @@ var _ = Describe("ServiceLocator", func() {
 
 		time.Sleep(time.Millisecond)
 		cancel()
+
 		var first, last time.Time
+
 		Eventually(chFirst).Should(Receive(&first))
 		Eventually(chLast).Should(Receive(&last))
 		Expect(first.Before(last)).To(BeTrue())
@@ -597,10 +598,64 @@ var _ = Describe("ServiceLocator", func() {
 
 		time.Sleep(time.Millisecond)
 		cancel()
+
 		var first, last time.Time
+
 		Eventually(chFirst).Should(Receive(&first))
 		Eventually(chLast).Should(Receive(&last))
 		Expect(first.Before(last)).To(BeTrue())
+	})
+
+	It("should shuffle contexts for cleanup if one takes too long", func() {
+		type timeTracker atomic.Pointer[func(time.Time)]
+		withTimeTracker := atomic.Pointer[func(time.Time)]{}
+		ptrToTimeTracker := func(fn func(time.Time)) *func(time.Time) { return &fn }
+		withTimeTracker.Store(ptrToTimeTracker(func(time.Time) {}))
+
+		sl, err := tinysl.
+			Add(tinysl.PerContext, nameServiceConstructor).
+			Add(tinysl.PerContext, heroConstructorWithCleanup(func() { (*withTimeTracker.Load())(time.Now()) })).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		var first, last atomic.Pointer[time.Time]
+		last.Store(func() *time.Time { t := time.Now(); return &t }())
+		first.Store(func() *time.Time { t := time.Now(); return &t }())
+		syncCh := make(chan struct{})
+		var wg sync.WaitGroup
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ctx, cancel := context.WithCancel(ctx)
+			_, err := tinysl.Get[*Hero](ctx, sl)
+			close(syncCh)
+
+			Expect(err).ShouldNot(HaveOccurred())
+			time.Sleep(3 * time.Second)
+			withTimeTracker.Store(ptrToTimeTracker(func(t time.Time) { last.Store(&t) }))
+			cancel()
+			time.Sleep(time.Millisecond)
+		}()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-syncCh
+			ctx, cancel := context.WithCancel(ctx)
+			_, err := tinysl.Get[*Hero](ctx, sl)
+
+			Expect(err).ShouldNot(HaveOccurred())
+			time.Sleep(time.Millisecond)
+			withTimeTracker.Store(ptrToTimeTracker(func(t time.Time) { first.Store(&t) }))
+			cancel()
+			time.Sleep(time.Millisecond)
+		}()
+
+		wg.Wait()
+
+		Expect(first.Load().Before(*last.Load())).To(BeTrue())
 	})
 
 	It("should work with constructor without error", func() {

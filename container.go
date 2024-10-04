@@ -252,12 +252,6 @@ func (c *container) Replace(constructor any) Container {
 			return c
 		}
 
-		if t.IsVariadic() {
-			c.err = newBadConstructorError(ErrVariadicConstructor, t)
-
-			return c
-		}
-
 		serviceType = t.Out(0).String()
 
 	}

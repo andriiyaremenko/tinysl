@@ -46,6 +46,28 @@ var _ = Describe("Container", func() {
 		Expect(err).ShouldNot(HaveOccurred())
 	})
 
+	It("should repert an error if no constructor been found to replace", func() {
+		_, err := tinysl.
+			Add(tinysl.PerContext, heroConstructor).
+			Replace(func() NameService {
+				return NameProvider("Sam")
+			}).
+			ServiceLocator()
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.BadConstructorError)))
+		Expect(errors.Unwrap(err)).Should(BeAssignableToTypeOf(new(tinysl.ConstructorNotFoundError)))
+	})
+
+	It("should repert an error if replacement is not a function", func() {
+		_, err := tinysl.
+			Add(tinysl.PerContext, heroConstructor).
+			Replace("human error").
+			ServiceLocator()
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.BadConstructorError)))
+		Expect(errors.Unwrap(err)).Should(MatchError(tinysl.ErrConstructorNotAFunction))
+	})
+
 	It("should register PerContext constructor dependant on context.Context", func() {
 		_, err := tinysl.
 			Add(tinysl.PerContext, tableTimerConstructor).
