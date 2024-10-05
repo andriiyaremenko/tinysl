@@ -5,6 +5,12 @@ import (
 	"sync"
 )
 
+var serviceScopesPool = sync.Pool{
+	New: func() any {
+		return make([]*serviceScope, 0)
+	},
+}
+
 type serviceScope struct {
 	value *any
 	key   uintptr
@@ -35,10 +41,10 @@ type contextInstances struct {
 }
 
 func newContextScope(keys []uintptr) []*serviceScope {
-	services := make([]*serviceScope, len(keys))
+	services := serviceScopesPool.Get().([]*serviceScope)
 
-	for i, key := range keys {
-		services[i] = &serviceScope{key: key}
+	for _, key := range keys {
+		services = append(services, &serviceScope{key: key})
 	}
 
 	return services
@@ -58,5 +64,9 @@ func (ci *contextInstances) get(ctxKey uintptr, key uintptr) (*serviceScope, boo
 }
 
 func (ci *contextInstances) delete(ctxKey uintptr) {
-	ci.m.Delete(ctxKey)
+	if servVal, loaded := ci.m.LoadAndDelete(ctxKey); loaded {
+		serv := servVal.([]*serviceScope)
+		serv = serv[:0]
+		serviceScopesPool.Put(serv)
+	}
 }
