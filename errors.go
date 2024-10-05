@@ -165,7 +165,7 @@ func (err *CircularDependencyError) Error() string {
 	return fmt.Sprintf("%s in %T is dependant on returned type", err.Dependency, err.Constructor)
 }
 
-func newScopeHierarchyError(rec, dep record) error {
+func newScopeHierarchyError(rec, dep containerRecord) error {
 	return &ScopeHierarchyError{DepServiceName: rec.typeName, DepLifetime: dep.lifetime}
 }
 

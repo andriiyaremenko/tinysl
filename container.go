@@ -53,21 +53,24 @@ const (
 type record struct {
 	constructor      any
 	typeName         string
-	dependencies     []string
 	id               uintptr
 	constructorType  constructorType
 	lifetime         Lifetime
 	dependsOnContext bool
 }
+type containerRecord struct {
+	dependencies []string
+	record
+}
 
 func newContainer(ctx context.Context, silenceUseSingletonWarnings bool) *container {
-	return &container{constructors: make(map[string]*record), ctx: ctx, ignoreScopeAnalyzerErrors: silenceUseSingletonWarnings}
+	return &container{constructors: make(map[string]*containerRecord), ctx: ctx, ignoreScopeAnalyzerErrors: silenceUseSingletonWarnings}
 }
 
 type container struct {
 	ctx                       context.Context
 	err                       error
-	constructors              map[string]*record
+	constructors              map[string]*containerRecord
 	constructorsRWM           sync.RWMutex
 	ignoreScopeAnalyzerErrors bool
 }
@@ -97,12 +100,14 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 
 		t := constructor.Type
 		serviceType := t.String()
-		r := &record{
-			constructorType: withError,
-			typeName:        serviceType,
-			lifetime:        lifetime,
-			dependencies:    constructor.Dependencies,
-			constructor:     constructor.NewInstance,
+		r := &containerRecord{
+			record: record{
+				constructorType: withError,
+				typeName:        serviceType,
+				lifetime:        lifetime,
+				constructor:     constructor.NewInstance,
+			},
+			dependencies: constructor.Dependencies,
 		}
 
 		c.constructorsRWM.Lock()
@@ -196,11 +201,13 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 		return c
 	}
 
-	r := &record{
-		constructorType: cType,
-		lifetime:        lifetime,
-		constructor:     constructor,
-		typeName:        serviceType,
+	r := &containerRecord{
+		record: record{
+			constructorType: cType,
+			lifetime:        lifetime,
+			constructor:     constructor,
+			typeName:        serviceType,
+		},
 	}
 
 	for i := 0; i < numIn; i++ {
@@ -293,10 +300,10 @@ func (c *container) ServiceLocator() (ServiceLocator, error) {
 		}
 	}
 
-	return newLocator(c.ctx, c.constructors), nil
+	return newLocator(c.ctx, containerRecordsToLocatorRecords(c.constructors)), nil
 }
 
-func (c *container) canResolveDependencies(record record, dependentServiceNames ...string) (bool, error) {
+func (c *container) canResolveDependencies(record containerRecord, dependentServiceNames ...string) (bool, error) {
 	dependentServiceNames = append(dependentServiceNames, record.typeName)
 	shouldBeSingleton := record.lifetime < Singleton && record.dependsOnContext
 
@@ -343,4 +350,26 @@ func (c *container) canResolveDependencies(record record, dependentServiceNames 
 	}
 
 	return shouldBeSingleton, nil
+}
+
+func containerRecordsToLocatorRecords(records map[string]*containerRecord) map[string]*locatorRecord {
+	result := make(map[string]*locatorRecord)
+
+	for key, value := range records {
+		deps := make([]*locatorRecordDependency, len(value.dependencies))
+		for i, dep := range value.dependencies {
+			if dep == contextDepName {
+				deps[i] = &locatorRecordDependency{serviceType: dep, id: 0}
+				continue
+			}
+
+			deps[i] = &locatorRecordDependency{serviceType: dep, id: records[dep].id}
+		}
+		result[key] = &locatorRecord{
+			record:       value.record,
+			dependencies: deps,
+		}
+	}
+
+	return result
 }
