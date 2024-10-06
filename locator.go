@@ -93,12 +93,22 @@ func (l *locator) Err() error {
 	return l.err
 }
 
-func (l *locator) Get(ctx context.Context, serviceName string) (any, error) {
+func (l *locator) Get(ctx context.Context, serviceName string) (service any, err error) {
 	record, ok := l.constructorsByType[serviceName]
 
 	if !ok {
 		return nil, newConstructorNotFoundError(serviceName)
 	}
+
+	defer func() {
+		if rp := recover(); rp != nil {
+			err = newServiceBuilderError(
+				newConstructorError(fmt.Errorf("recovered from panic: %v", rp)),
+				record.lifetime,
+				record.typeName,
+			)
+		}
+	}()
 
 	switch record.lifetime {
 	case Singleton:
@@ -133,17 +143,7 @@ func (l *locator) get(ctx context.Context, record *locatorRecord) (any, error) {
 	}
 }
 
-func (l *locator) build(ctx context.Context, record *locatorRecord) (service any, cleanups Cleanup, err error) {
-	defer func() {
-		if rp := recover(); rp != nil {
-			err = newServiceBuilderError(
-				newConstructorError(fmt.Errorf("recovered from panic: %v", rp)),
-				record.lifetime,
-				record.typeName,
-			)
-		}
-	}()
-
+func (l *locator) build(ctx context.Context, record *locatorRecord) (any, Cleanup, error) {
 	constructor := record.constructor
 	fn := reflect.ValueOf(constructor)
 	args := reflectValuesPool.Get().([]reflect.Value)
