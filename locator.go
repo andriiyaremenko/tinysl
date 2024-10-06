@@ -1,8 +1,3 @@
-// NOTE: building dependency graph for PerContext for every service
-// and assembling them within single call to (*locator).getSingleton
-// proved to be ineffective compared to existing implementation (memory and speed wise).
-// Turns out calling sync.Map for every context with additional data structures that comes with dependency graph
-// is more expensive compared to calling sync.Map for every PerContext service without additional data structures.
 package tinysl
 
 import (
@@ -15,13 +10,8 @@ import (
 	"syscall"
 )
 
-type locatorRecordDependency struct {
-	serviceType string
-	id          int
-}
-
 type locatorRecord struct {
-	dependencies []*locatorRecordDependency
+	dependencies []*locatorRecord
 	record
 }
 
@@ -114,7 +104,7 @@ func (l *locator) Get(ctx context.Context, serviceName string) (any, error) {
 	case Singleton:
 		return l.getSingleton(ctx, record)
 	case PerContext:
-		return l.getPerContext(ctx, record, serviceName)
+		return l.getPerContext(ctx, record)
 	case Transient:
 		s, _, err := l.build(ctx, record)
 		return s, err
@@ -126,18 +116,12 @@ func (l *locator) Get(ctx context.Context, serviceName string) (any, error) {
 	}
 }
 
-func (l *locator) get(ctx context.Context, id int, serviceName string) (any, error) {
-	record, ok := l.constructorsById[id]
-
-	if !ok {
-		return nil, newConstructorNotFoundError(serviceName)
-	}
-
+func (l *locator) get(ctx context.Context, record *locatorRecord) (any, error) {
 	switch record.lifetime {
 	case Singleton:
 		return l.getSingleton(ctx, record)
 	case PerContext:
-		return l.getPerContext(ctx, record, serviceName)
+		return l.getPerContext(ctx, record)
 	case Transient:
 		s, _, err := l.build(ctx, record)
 		return s, err
@@ -146,7 +130,6 @@ func (l *locator) get(ctx context.Context, id int, serviceName string) (any, err
 			"broken record %s: %w",
 			record.typeName,
 			LifetimeUnsupportedError(record.lifetime.String()))
-
 	}
 }
 
@@ -175,7 +158,7 @@ func (l *locator) build(ctx context.Context, record *locatorRecord) (service any
 			continue
 		}
 
-		service, err := l.get(ctx, dep.id, dep.serviceType)
+		service, err := l.get(ctx, dep)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -271,13 +254,13 @@ func (l *locator) getSingleton(ctx context.Context, record *locatorRecord) (any,
 	return service, nil
 }
 
-func (l *locator) getPerContext(ctx context.Context, record *locatorRecord, serviceName string) (any, error) {
+func (l *locator) getPerContext(ctx context.Context, record *locatorRecord) (any, error) {
 	if ctx == nil {
-		return nil, newServiceBuilderError(ErrNilContext, record.lifetime, serviceName)
+		return nil, newServiceBuilderError(ErrNilContext, record.lifetime, record.typeName)
 	}
 
 	if err := ctx.Err(); err != nil {
-		return nil, newServiceBuilderError(err, record.lifetime, serviceName)
+		return nil, newServiceBuilderError(err, record.lifetime, record.typeName)
 	}
 
 	ctxKey := reflect.ValueOf(ctx).Pointer()

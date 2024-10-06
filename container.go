@@ -467,20 +467,27 @@ func containerRecordsToLocatorRecords(recordsMap map[[2]string][]*containerRecor
 		}
 
 		for _, value := range records {
-			deps := make([]*locatorRecordDependency, len(value.dependencies))
+			result[key[0]] = &locatorRecord{record: value.record}
+		}
+	}
+
+	for key, records := range recordsMap {
+		if key[1] != service {
+			continue
+		}
+
+		for _, value := range records {
+			deps := make([]*locatorRecord, len(value.dependencies))
 			for i, dep := range value.dependencies {
 				if dep == contextDepName {
-					deps[i] = &locatorRecordDependency{serviceType: dep, id: 0}
+					deps[i] = &locatorRecord{record: record{typeName: dep, id: 0}}
 					continue
 				}
 
-				deps[i] = &locatorRecordDependency{serviceType: dep, id: recordsMap[[2]string{dep, service}][0].id}
+				deps[i] = result[dep]
 			}
 
-			result[key[0]] = &locatorRecord{
-				record:       value.record,
-				dependencies: deps,
-			}
+			result[key[0]].dependencies = deps
 		}
 	}
 
@@ -490,14 +497,14 @@ func containerRecordsToLocatorRecords(recordsMap map[[2]string][]*containerRecor
 		}
 
 		for i, value := range records {
-			deps := make([]*locatorRecordDependency, len(value.dependencies))
+			deps := make([]*locatorRecord, len(value.dependencies))
 			for i, dep := range value.dependencies {
 				if dep == contextDepName {
-					deps[i] = &locatorRecordDependency{serviceType: dep, id: 0}
+					deps[i] = &locatorRecord{record: record{typeName: dep, id: 0}}
 					continue
 				}
 
-				deps[i] = &locatorRecordDependency{serviceType: dep, id: result[dep].id}
+				deps[i] = result[dep]
 			}
 
 			decorated := result[key[0]]
