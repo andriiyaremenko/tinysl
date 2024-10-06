@@ -22,13 +22,15 @@ var (
 	cleanUpType      = reflect.TypeOf((*func())(nil)).Elem()
 	contextInterface = reflect.TypeOf((*context.Context)(nil)).Elem()
 
-	ErrConstructorNotAFunction = fmt.Errorf("constructor must be a function")
-	ErrVariadicConstructor     = fmt.Errorf("variadic constructor is not supported")
-	ErrDuplicateConstructor    = fmt.Errorf("ServiceLocator has already registered constructor for this type")
-	ErrNilContext              = fmt.Errorf("got nil context")
-	ErrIWrongTType             = fmt.Errorf("I can be used only with T as a struct")
-	ErrIWrongIType             = fmt.Errorf("I can be used only with I as an interface")
-	ErrITDoesNotImplementI     = fmt.Errorf("I can only be used with T if T or *T implements I")
+	ErrDecoratorHasNothingToDecorate = fmt.Errorf("decorator has nothing to decorate")
+	ErrDecoratorBadDependency        = fmt.Errorf("decorator must depend on the same type it implements")
+	ErrConstructorNotAFunction       = fmt.Errorf("constructor must be a function")
+	ErrVariadicConstructor           = fmt.Errorf("variadic constructor is not supported")
+	ErrDuplicateConstructor          = fmt.Errorf("ServiceLocator has already registered constructor for this type")
+	ErrNilContext                    = fmt.Errorf("got nil context")
+	ErrIWrongTType                   = fmt.Errorf("I can be used only with T as a struct")
+	ErrIWrongIType                   = fmt.Errorf("I can be used only with I as an interface")
+	ErrITDoesNotImplementI           = fmt.Errorf("I can only be used with T if T or *T implements I")
 )
 
 func newConstructorUnsupportedError(constructorType reflect.Type, lifetime Lifetime) error {

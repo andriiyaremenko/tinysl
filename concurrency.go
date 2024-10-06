@@ -13,7 +13,7 @@ var serviceScopesPool = sync.Pool{
 
 type serviceScope struct {
 	value *any
-	key   uintptr
+	key   int
 	mu    sync.Mutex
 }
 
@@ -29,7 +29,7 @@ func (cs *serviceScope) unlock() {
 	cs.mu.Unlock()
 }
 
-func newContextInstances(keys []uintptr) *contextInstances {
+func newContextInstances(keys []int) *contextInstances {
 	return &contextInstances{
 		keys: keys,
 	}
@@ -37,10 +37,10 @@ func newContextInstances(keys []uintptr) *contextInstances {
 
 type contextInstances struct {
 	m    sync.Map
-	keys []uintptr
+	keys []int
 }
 
-func newContextScope(keys []uintptr) []*serviceScope {
+func newContextScope(keys []int) []*serviceScope {
 	services := serviceScopesPool.Get().([]*serviceScope)
 
 	for _, key := range keys {
@@ -50,7 +50,7 @@ func newContextScope(keys []uintptr) []*serviceScope {
 	return services
 }
 
-func (ci *contextInstances) get(ctxKey uintptr, key uintptr) (*serviceScope, bool) {
+func (ci *contextInstances) get(ctxKey uintptr, key int) (*serviceScope, bool) {
 	servicesVal, ok := ci.m.LoadOrStore(ctxKey, newContextScope(ci.keys))
 	services := servicesVal.([]*serviceScope)
 

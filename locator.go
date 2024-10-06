@@ -17,7 +17,7 @@ import (
 
 type locatorRecordDependency struct {
 	serviceType string
-	id          uintptr
+	id          int
 }
 
 type locatorRecord struct {
@@ -34,7 +34,7 @@ func newLocator(ctx context.Context, constructorsByType map[string]*locatorRecor
 	singletons := make([]*locatorRecord, 0)
 	perContexts := make([]*locatorRecord, 0)
 
-	perCtxIDs := make([]uintptr, 0)
+	perCtxIDs := make([]int, 0)
 	for _, rec := range constructorsByType {
 		switch rec.lifetime {
 		case Singleton:
@@ -51,7 +51,6 @@ func newLocator(ctx context.Context, constructorsByType map[string]*locatorRecor
 		ctx,
 		func(ctx context.Context) cleanupNode {
 			n := buildCleanupNodes(perContexts)
-			n.setId(reflect.ValueOf(ctx).Pointer())
 
 			return n
 		},
@@ -59,7 +58,7 @@ func newLocator(ctx context.Context, constructorsByType map[string]*locatorRecor
 		&wg,
 	)
 
-	constructorsByID := make(map[uintptr]*locatorRecord, len(constructorsByType))
+	constructorsByID := make(map[int]*locatorRecord, len(constructorsByType))
 	for _, rec := range constructorsByType {
 		constructorsByID[rec.id] = rec
 	}
@@ -77,7 +76,7 @@ type locator struct {
 	err                 error
 	perContext          *contextInstances
 	constructorsByType  map[string]*locatorRecord
-	constructorsById    map[uintptr]*locatorRecord
+	constructorsById    map[int]*locatorRecord
 	singletonsCleanupCh chan<- cleanupNodeUpdate
 	perContextCleanUpCh chan<- cleanupRecord
 	sMu                 sync.Map
@@ -127,7 +126,7 @@ func (l *locator) Get(ctx context.Context, serviceName string) (any, error) {
 	}
 }
 
-func (l *locator) get(ctx context.Context, id uintptr, serviceName string) (any, error) {
+func (l *locator) get(ctx context.Context, id int, serviceName string) (any, error) {
 	record, ok := l.constructorsById[id]
 
 	if !ok {
@@ -309,7 +308,6 @@ func (l *locator) getPerContext(ctx context.Context, record *locatorRecord, serv
 			l.perContextCleanUpCh <- cleanupRecord{
 				ctx: ctx,
 				cleanupNodeUpdate: cleanupNodeUpdate{
-					id: ctxKey,
 					fn: func() { l.perContext.delete(ctxKey) },
 				},
 			}
@@ -319,7 +317,6 @@ func (l *locator) getPerContext(ctx context.Context, record *locatorRecord, serv
 			l.perContextCleanUpCh <- cleanupRecord{
 				ctx: ctx,
 				cleanupNodeUpdate: cleanupNodeUpdate{
-					id: record.id,
 					fn: func() { l.perContext.delete(ctxKey) },
 				},
 			}

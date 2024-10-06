@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -53,13 +54,15 @@ var _ = Describe("ServiceLocator", func() {
 
 		Expect(err).ShouldNot(HaveOccurred())
 
-		hero1, err := tinysl.Get[*Hero](ctx, sl)
+		hero1, err1 := tinysl.Get[*Hero](ctx, sl)
 
-		Expect(err).ShouldNot(HaveOccurred())
+		Expect(err1).ShouldNot(HaveOccurred())
 
-		hero2, err := tinysl.Get[*Hero](ctx, sl)
+		runtime.GC()
 
-		Expect(err).ShouldNot(HaveOccurred())
+		hero2, err2 := tinysl.Get[*Hero](ctx, sl)
+
+		Expect(err2).ShouldNot(HaveOccurred())
 		Expect(hero1).To(BeIdenticalTo(hero2))
 	})
 
@@ -167,6 +170,21 @@ var _ = Describe("ServiceLocator", func() {
 
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(nameService.Name()).To(Equal("Bob"))
+	})
+
+	It("should decorate services", func() {
+		sl, err := tinysl.
+			Add(tinysl.PerContext, nameServiceConstructor).
+			Decorate(tinysl.PerContext, nameServiceDecoratorConstructor("decorated")).
+			Decorate(tinysl.PerContext, nameServiceDecoratorConstructor("twice")).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		s, err := tinysl.Get[NameService](ctx, sl)
+
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(s.Name()).To(Equal("twice decorated Bob"))
 	})
 
 	It("should return error on missing constructor", func() {

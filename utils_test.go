@@ -39,6 +39,21 @@ func (s NameProvider) Name() string {
 	return string(s)
 }
 
+func nameServiceDecoratorConstructor(prefix string) func(NameService) NameService {
+	return func(s NameService) NameService {
+		return &NameServiceDecorator{NameService: s, prefix: prefix}
+	}
+}
+
+type NameServiceDecorator struct {
+	NameService NameService
+	prefix      string
+}
+
+func (s *NameServiceDecorator) Name() string {
+	return s.prefix + " " + s.NameService.Name()
+}
+
 type TableTimer struct {
 	ctx         context.Context
 	nameService NameService

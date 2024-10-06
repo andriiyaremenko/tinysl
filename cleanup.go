@@ -1,4 +1,3 @@
-// is more expensive compared to calling sync.Map for every PerContext service without additional data structures.
 package tinysl
 
 import (
@@ -25,19 +24,18 @@ type cleanupRecord struct {
 
 type cleanupNodeUpdate struct {
 	fn Cleanup
-	id uintptr
+	id int
 }
 
 type cleanupNode interface {
 	clean()
 	updateCleanupNode(cleanupNodeUpdate)
-	setId(uintptr)
 }
 
 type cleanupNodeImpl struct {
 	fn         Cleanup
 	dependants []*cleanupNodeImpl
-	id         uintptr
+	id         int
 	cleaned    bool
 }
 
@@ -64,10 +62,6 @@ func (node *cleanupNodeImpl) updateCleanupNode(update cleanupNodeUpdate) {
 	}
 }
 
-func (node *cleanupNodeImpl) setId(id uintptr) {
-	node.id = id
-}
-
 type singleCleanupFn func()
 
 func (fn singleCleanupFn) clean() {
@@ -78,13 +72,10 @@ func (fn singleCleanupFn) updateCleanupNode(update cleanupNodeUpdate) {
 	fn = singleCleanupFn(update.fn)
 }
 
-func (fn singleCleanupFn) setId(id uintptr) {
-}
-
 type cleanupNodeRecord struct {
 	*cleanupNodeImpl
 	typeName     string
-	dependencies []uintptr
+	dependencies []int
 }
 
 func buildCleanupNodes(records []*locatorRecord) cleanupNode {
@@ -141,7 +132,7 @@ func buildCleanupNodeRecord(rec *locatorRecord, records []*locatorRecord) *clean
 		id: rec.id,
 	}
 
-	deps := make([]uintptr, 0)
+	deps := make([]int, 0)
 	for _, depRecord := range rec.dependencies {
 		for _, dep := range records {
 			if rec.constructorType == withErrorAndCleanUp && dep.id == depRecord.id && dep.lifetime == rec.lifetime {
