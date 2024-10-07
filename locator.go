@@ -110,20 +110,7 @@ func (l *locator) Get(ctx context.Context, serviceName string) (service any, err
 		}
 	}()
 
-	switch record.lifetime {
-	case Singleton:
-		return l.getSingleton(ctx, record)
-	case PerContext:
-		return l.getPerContext(ctx, record)
-	case Transient:
-		s, _, err := l.build(ctx, record)
-		return s, err
-	default:
-		return nil, fmt.Errorf(
-			"broken record %s: %w",
-			record.typeName,
-			LifetimeUnsupportedError(record.lifetime.String()))
-	}
+	return l.get(ctx, record)
 }
 
 func (l *locator) get(ctx context.Context, record *locatorRecord) (any, error) {
@@ -278,6 +265,8 @@ func (l *locator) getPerContext(ctx context.Context, record *locatorRecord) (any
 		return nil, err
 	}
 
+	scope.value = &service
+
 	switch {
 	case !ok && record.constructorType == withErrorAndCleanUp:
 		go func() {
@@ -315,8 +304,6 @@ func (l *locator) getPerContext(ctx context.Context, record *locatorRecord) (any
 			}
 		}()
 	}
-
-	scope.value = &service
 
 	return service, nil
 }
