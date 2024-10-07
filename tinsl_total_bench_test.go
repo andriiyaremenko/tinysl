@@ -8,6 +8,33 @@ import (
 	"github.com/andriiyaremenko/tinysl"
 )
 
+func BenchmarkTotalGetPerContext(b *testing.B) {
+	sl, _ := tinysl.Add(tinysl.PerContext, nameServiceConstructor).ServiceLocator()
+
+	for i := 0; i < b.N; i++ {
+		runNCallsForPerContext[NameService](sl, 1)
+	}
+}
+
+func BenchmarkTotalGetPerContext2Services(b *testing.B) {
+	sl, _ := tinysl.
+		Add(tinysl.PerContext, nameServiceConstructor).
+		Add(tinysl.PerContext, heroConstructor).
+		ServiceLocator()
+
+	for i := 0; i < b.N; i++ {
+		runNCallsForPerContext[*Hero](sl, 1)
+	}
+}
+
+func BenchmarkTotalGetPerContext2Contexts(b *testing.B) {
+	sl, _ := tinysl.Add(tinysl.PerContext, nameServiceConstructor).ServiceLocator()
+
+	for i := 0; i < b.N; i++ {
+		runNCallsForPerContext[NameService](sl, 2)
+	}
+}
+
 func BenchmarkTotalGetPerContext4Services10Contexts(b *testing.B) {
 	sl, _ := tinysl.
 		Add(tinysl.PerContext, nameServiceConstructor).
@@ -57,6 +84,19 @@ func BenchmarkTotalGetPerContext4Services10_000Contexts(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		runNCallsForPerContext[*Impostor](sl, 10_000)
+	}
+}
+
+func BenchmarkTotalGetPerContext4Services50_000Contexts(b *testing.B) {
+	sl, _ := tinysl.
+		Add(tinysl.PerContext, nameServiceConstructor).
+		Add(tinysl.PerContext, tableTimerConstructor).
+		Add(tinysl.PerContext, heroConstructor).
+		Add(tinysl.PerContext, impostorConstructor).
+		ServiceLocator()
+
+	for i := 0; i < b.N; i++ {
+		runNCallsForPerContext[*Impostor](sl, 50_000)
 	}
 }
 
