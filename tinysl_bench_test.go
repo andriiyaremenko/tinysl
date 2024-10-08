@@ -92,6 +92,7 @@ func BenchmarkParallelGetPerContext4Services1_000_000Contexts(b *testing.B) {
 }
 
 func runNCallsInParallel[T any](b *testing.B, sl tinysl.ServiceLocator, n int) {
+	b.ResetTimer()
 	b.SetParallelism(n)
 	b.RunParallel(func(pb *testing.PB) {
 		ctx := context.TODO()

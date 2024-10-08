@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"syscall"
 )
 
@@ -39,13 +40,11 @@ func newLocator(ctx context.Context, constructorsByType map[string]*locatorRecor
 	wg.Add(1)
 	go perContextCleanupWorker(
 		ctx,
-		func(ctx context.Context) cleanupNode {
-			n := buildCleanupNodes(perContexts)
-
-			return n
-		},
-		perContextCleanupCh,
 		&wg,
+		perContextCleanupCh,
+		func() cleanupNode {
+			return buildCleanupNodes(perContexts)
+		},
 	)
 
 	constructorsByID := make(map[int]*locatorRecord, len(constructorsByType))
@@ -63,15 +62,13 @@ func newLocator(ctx context.Context, constructorsByType map[string]*locatorRecor
 }
 
 type locator struct {
-	err                 error
+	err                 atomic.Pointer[error]
 	perContext          *contextInstances
 	constructorsByType  map[string]*locatorRecord
 	constructorsById    map[int]*locatorRecord
 	singletonsCleanupCh chan<- cleanupNodeUpdate
 	perContextCleanUpCh chan<- cleanupRecord
-	sMu                 sync.Map
 	singletons          sync.Map
-	errRMu              sync.RWMutex
 }
 
 func (l *locator) EnsureAvailable(serviceName string) {
@@ -81,16 +78,15 @@ func (l *locator) EnsureAvailable(serviceName string) {
 		}
 	}
 
-	l.errRMu.Lock()
-	l.err = newConstructorNotFoundError(serviceName)
-	l.errRMu.Unlock()
+	err := newConstructorNotFoundError(serviceName)
+	l.err.Store(&err)
 }
 
 func (l *locator) Err() error {
-	l.errRMu.RLock()
-	defer l.errRMu.RUnlock()
-
-	return l.err
+	if err := l.err.Load(); err != nil {
+		return *err
+	}
+	return nil
 }
 
 func (l *locator) Get(ctx context.Context, serviceName string) (service any, err error) {
@@ -209,14 +205,14 @@ func (l *locator) build(ctx context.Context, record *locatorRecord) (any, Cleanu
 }
 
 func (l *locator) getSingleton(ctx context.Context, record *locatorRecord) (any, error) {
-	mu, ok := l.sMu.LoadOrStore(record.id, new(sync.Mutex))
+	scopeV, _ := l.singletons.LoadOrStore(record.id, &serviceScope{})
+	scope := scopeV.(*serviceScope)
 
-	mu.(*sync.Mutex).Lock()
-	defer mu.(*sync.Mutex).Unlock()
+	scope.lock()
+	defer scope.unlock()
 
-	servicePtr, ok := l.singletons.Load(record.id)
-	if ok {
-		return *servicePtr.(*any), nil
+	if !scope.empty() {
+		return *scope.value, nil
 	}
 
 	service, cleanUp, err := l.build(ctx, record)
@@ -224,19 +220,19 @@ func (l *locator) getSingleton(ctx context.Context, record *locatorRecord) (any,
 		return nil, err
 	}
 
+	scope.value = &service
+
 	if record.constructorType == withErrorAndCleanUp {
 		go func() {
 			l.singletonsCleanupCh <- cleanupNodeUpdate{
 				id: record.id,
 				fn: func() {
 					cleanUp()
-					l.sMu.Delete(record.id)
+					l.singletons.Delete(record.id)
 				},
 			}
 		}()
 	}
-
-	l.singletons.Store(record.id, &service)
 
 	return service, nil
 }

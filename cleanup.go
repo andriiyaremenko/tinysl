@@ -29,6 +29,7 @@ type cleanupNodeUpdate struct {
 
 type cleanupNode interface {
 	clean()
+	zeroOut()
 	updateCleanupNode(cleanupNodeUpdate)
 }
 
@@ -51,6 +52,14 @@ func (ct *cleanupNodeImpl) clean() {
 	ct.cleaned = true
 }
 
+func (ct *cleanupNodeImpl) zeroOut() {
+	ct.cleaned = false
+	ct.fn = func() {}
+	for _, nodes := range ct.dependants {
+		nodes.zeroOut()
+	}
+}
+
 func (node *cleanupNodeImpl) updateCleanupNode(update cleanupNodeUpdate) {
 	if node.id == update.id {
 		node.fn = update.fn
@@ -66,6 +75,10 @@ type singleCleanupFn func()
 
 func (fn singleCleanupFn) clean() {
 	fn()
+}
+
+func (fn singleCleanupFn) zeroOut() {
+	fn = func() {}
 }
 
 func (fn singleCleanupFn) updateCleanupNode(update cleanupNodeUpdate) {
@@ -175,10 +188,16 @@ loop:
 // worker to handle per-context cleanups
 func perContextCleanupWorker(
 	ctx context.Context,
-	getCleanupNode func(context.Context) cleanupNode,
-	perContextCleanupCh <-chan cleanupRecord,
 	wg *sync.WaitGroup,
+	perContextCleanupCh <-chan cleanupRecord,
+	getCleanupNode func() cleanupNode,
 ) {
+	pool := sync.Pool{
+		New: func() any {
+			return getCleanupNode()
+		},
+	}
+
 	cleanups := make(map[uintptr]cleanupNode)
 	ctxList := []context.Context{}
 	nextCtx := context.Background()
@@ -199,7 +218,7 @@ loop:
 			node, ok := cleanups[pt]
 
 			if !ok {
-				node = getCleanupNode(rec.ctx)
+				node = pool.Get().(cleanupNode)
 				cleanups[pt] = node
 			}
 
@@ -216,6 +235,9 @@ loop:
 			if node, ok := cleanups[pt]; ok {
 				var fn Cleanup = func() { node.clean() }
 				fn.CallWithRecovery(PerContext)
+
+				node.zeroOut()
+				pool.Put(node)
 			}
 
 			delete(cleanups, pt)
