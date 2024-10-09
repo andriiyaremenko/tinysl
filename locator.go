@@ -247,7 +247,7 @@ func (l *locator) getPerContext(ctx context.Context, record *locatorRecord) (any
 	}
 
 	ctxKey := getCtxScopeKey(ctx)
-	scope, ok := l.perContext.get(ctxKey, record.id)
+	scope, ctxCleanUp, ok := l.perContext.get(ctxKey, record.id)
 
 	scope.lock()
 	defer scope.unlock()
@@ -276,7 +276,7 @@ func (l *locator) getPerContext(ctx context.Context, record *locatorRecord) (any
 			l.perContextCleanUpCh <- cleanupRecord{
 				ctx: ctx,
 				cleanupNodeUpdate: cleanupNodeUpdate{
-					fn: func() { l.perContext.delete(ctxKey) },
+					fn: ctxCleanUp,
 				},
 			}
 		}()
@@ -285,7 +285,7 @@ func (l *locator) getPerContext(ctx context.Context, record *locatorRecord) (any
 			l.perContextCleanUpCh <- cleanupRecord{
 				ctx: ctx,
 				cleanupNodeUpdate: cleanupNodeUpdate{
-					fn: func() { l.perContext.delete(ctxKey) },
+					fn: ctxCleanUp,
 				},
 			}
 		}()

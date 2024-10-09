@@ -91,26 +91,23 @@ type contextInstances struct {
 	keys              []int
 }
 
-func (ci *contextInstances) get(ctxKey *ctxScopeKey, key int) (*serviceScope, bool) {
+func (ci *contextInstances) get(ctxKey *ctxScopeKey, key int) (*serviceScope, func(), bool) {
 	servicesVal, ok := ci.m.LoadOrStore(ctxKey.key(), ci.serviceScopesPool.Get())
 	services := servicesVal.(map[int]*serviceScope)
 
 	if !ok {
 		ctxKey.pin()
+		return services[key], func() {
+			ci.m.Delete(ctxKey.key())
+			for key := range services {
+				services[key] = &serviceScope{}
+			}
+			ci.serviceScopesPool.Put(services)
+			cleanCtxKey(ctxKey)
+		}, false
 	} else {
 		cleanCtxKey(ctxKey)
 	}
 
-	return services[key], ok
-}
-
-func (ci *contextInstances) delete(ctxKey *ctxScopeKey) {
-	if servVal, loaded := ci.m.LoadAndDelete(ctxKey.key()); loaded {
-		serv := servVal.(map[int]*serviceScope)
-		for key := range serv {
-			serv[key] = &serviceScope{}
-		}
-		ci.serviceScopesPool.Put(serv)
-		cleanCtxKey(ctxKey)
-	}
+	return services[key], nil, true
 }

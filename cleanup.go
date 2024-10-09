@@ -28,6 +28,7 @@ type cleanupNodeUpdate struct {
 }
 
 type cleanupNode interface {
+	len() int
 	clean()
 	zeroOut()
 	updateCleanupNode(cleanupNodeUpdate)
@@ -52,6 +53,10 @@ func (ct *cleanupNodeImpl) clean() {
 	ct.cleaned = true
 }
 
+func (ct *cleanupNodeImpl) len() int {
+	return len(ct.dependants)
+}
+
 func (ct *cleanupNodeImpl) zeroOut() {
 	ct.cleaned = false
 	ct.fn = func() {}
@@ -72,6 +77,10 @@ func (node *cleanupNodeImpl) updateCleanupNode(update cleanupNodeUpdate) {
 }
 
 type singleCleanupFn func()
+
+func (fn singleCleanupFn) len() int {
+	return 0
+}
 
 func (fn singleCleanupFn) clean() {
 	fn()
@@ -100,7 +109,7 @@ func buildCleanupNodes(records []*locatorRecord) cleanupNode {
 	}
 
 	if hasNoDeps {
-		return singleCleanupFn(func() {})
+		return &cleanupNodeImpl{fn: func() {}}
 	}
 
 	headNode := &cleanupNodeImpl{fn: func() {}}
@@ -222,7 +231,11 @@ loop:
 				cleanups[pt] = node
 			}
 
-			node.updateCleanupNode(rec.cleanupNodeUpdate)
+			if node.len() == 0 {
+				node = singleCleanupFn(rec.fn)
+			} else {
+				node.updateCleanupNode(rec.cleanupNodeUpdate)
+			}
 
 			if replaceNextContext {
 				nextCtx = rec.ctx
