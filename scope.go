@@ -1,8 +1,53 @@
 package tinysl
 
 import (
+	"context"
+	"reflect"
+	"runtime"
 	"sync"
 )
+
+var ctxScopeKeyPool = sync.Pool{
+	New: func() any {
+		return &ctxScopeKey{}
+	},
+}
+
+func getCtxScopeKey(ctx context.Context) *ctxScopeKey {
+	key := ctxScopeKeyPool.Get().(*ctxScopeKey)
+	key.ctx = ctx
+
+	return key
+}
+
+func cleanCtxKey(key *ctxScopeKey) {
+	key.clean()
+	ctxScopeKeyPool.Put(key)
+}
+
+type ctxScopeKey struct {
+	ctx context.Context
+}
+
+func (sk *ctxScopeKey) key() uintptr {
+	return reflect.ValueOf(sk.ctx).Pointer()
+}
+
+func (sk *ctxScopeKey) pin() {
+	if sk.ctx.Err() == nil && sk.ctx.Done() != nil {
+		// We don't want sk.ctx pointer value to change so we need to pin it.
+		// Currently Go GC do not move values in memory (mostly) but there is no guarantee that GC implementation would't change.
+		// Any reliable source on Go is telling not to relay on consistency values returned from reflect.Value.Pointer() and
+		// in order to make it consistent we pinning context until context is done.
+		pinner := &runtime.Pinner{}
+		pinner.Pin(sk.ctx)
+		context.AfterFunc(sk.ctx, pinner.Unpin)
+	}
+}
+
+func (sk *ctxScopeKey) clean() {
+	sk.ctx = nil
+}
 
 type serviceScope struct {
 	value *any
@@ -46,19 +91,26 @@ type contextInstances struct {
 	keys              []int
 }
 
-func (ci *contextInstances) get(ctxKey uintptr, key int) (*serviceScope, bool) {
-	servicesVal, ok := ci.m.LoadOrStore(ctxKey, ci.serviceScopesPool.Get())
+func (ci *contextInstances) get(ctxKey *ctxScopeKey, key int) (*serviceScope, bool) {
+	servicesVal, ok := ci.m.LoadOrStore(ctxKey.key(), ci.serviceScopesPool.Get())
 	services := servicesVal.(map[int]*serviceScope)
+
+	if !ok {
+		ctxKey.pin()
+	} else {
+		cleanCtxKey(ctxKey)
+	}
 
 	return services[key], ok
 }
 
-func (ci *contextInstances) delete(ctxKey uintptr) {
-	if servVal, loaded := ci.m.LoadAndDelete(ctxKey); loaded {
+func (ci *contextInstances) delete(ctxKey *ctxScopeKey) {
+	if servVal, loaded := ci.m.LoadAndDelete(ctxKey.key()); loaded {
 		serv := servVal.(map[int]*serviceScope)
 		for key := range serv {
 			serv[key] = &serviceScope{}
 		}
 		ci.serviceScopesPool.Put(serv)
+		cleanCtxKey(ctxKey)
 	}
 }

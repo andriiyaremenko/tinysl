@@ -233,7 +233,7 @@ loop:
 		case <-nextCtx.Done():
 			pt := reflect.ValueOf(nextCtx).Pointer()
 			if node, ok := cleanups[pt]; ok {
-				var fn Cleanup = func() { node.clean() }
+				var fn Cleanup = node.clean
 				fn.CallWithRecovery(PerContext)
 
 				node.zeroOut()
@@ -270,7 +270,7 @@ loop:
 	ticker.Stop()
 
 	for _, node := range cleanups {
-		var fn Cleanup = func() { node.clean() }
+		var fn Cleanup = node.clean
 		fn.CallWithRecovery(PerContext)
 	}
 

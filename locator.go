@@ -246,7 +246,7 @@ func (l *locator) getPerContext(ctx context.Context, record *locatorRecord) (any
 		return nil, newServiceBuilderError(err, record.lifetime, record.typeName)
 	}
 
-	ctxKey := reflect.ValueOf(ctx).Pointer()
+	ctxKey := getCtxScopeKey(ctx)
 	scope, ok := l.perContext.get(ctxKey, record.id)
 
 	scope.lock()
@@ -270,7 +270,7 @@ func (l *locator) getPerContext(ctx context.Context, record *locatorRecord) (any
 				ctx: ctx,
 				cleanupNodeUpdate: cleanupNodeUpdate{
 					id: record.id,
-					fn: func() { cleanUp() },
+					fn: cleanUp,
 				},
 			}
 			l.perContextCleanUpCh <- cleanupRecord{
