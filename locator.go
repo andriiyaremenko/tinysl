@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"reflect"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -99,7 +100,7 @@ func (l *locator) Get(ctx context.Context, serviceName string) (service any, err
 	defer func() {
 		if rp := recover(); rp != nil {
 			err = newServiceBuilderError(
-				newConstructorError(fmt.Errorf("recovered from panic: %v", rp)),
+				newConstructorError(newRecoveredError(rp, debug.Stack())),
 				record.lifetime,
 				record.typeName,
 			)

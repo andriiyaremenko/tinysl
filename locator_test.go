@@ -530,7 +530,9 @@ var _ = Describe("ServiceLocator", func() {
 
 		Expect(err).Should(HaveOccurred())
 		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.ServiceBuilderError)))
-		Expect(errors.Unwrap(err)).Should(MatchError(fmt.Errorf("recovered from panic: scared")))
+		Expect(errors.Unwrap(err)).Should(BeAssignableToTypeOf(new(tinysl.ConstructorError)))
+		Expect(errors.Unwrap(errors.Unwrap(err))).Should(BeAssignableToTypeOf(new(tinysl.RecoveredError)))
+		Expect(errors.Unwrap(errors.Unwrap(err)).(*tinysl.RecoveredError).Panic).Should(MatchError(fmt.Errorf("scared")))
 	})
 
 	It("should handle panic during cleanup function for PerContext", func() {

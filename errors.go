@@ -237,3 +237,23 @@ type UnexpectedResultError struct {
 func (err *UnexpectedResultError) Error() string {
 	return fmt.Sprintf("unexpected result: %#v", err.Result)
 }
+
+func newRecoveredError(p any, stack []byte) error {
+	return &RecoveredError{
+		Panic: p,
+		Stack: stack,
+	}
+}
+
+type RecoveredError struct {
+	Panic any
+	Stack []byte
+}
+
+func (err *RecoveredError) Error() string {
+	if enableStackTrace.Load() {
+		return fmt.Sprintf("recovered from panic: %v\n %s", err.Panic, string(err.Stack))
+	}
+
+	return fmt.Sprintf("recovered from panic: %v", err.Panic)
+}

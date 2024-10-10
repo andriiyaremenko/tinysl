@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"reflect"
+	"runtime/debug"
 	"sync/atomic"
 )
 
@@ -40,31 +41,43 @@ func (c Cleanup) CallWithRecovery(l Lifetime) {
 		if rp := recover(); rp != nil {
 			logger().Error(
 				fmt.Sprintf("recovered from panic during %s cleanup", l),
-				"error", fmt.Errorf("cleanup %s: recovered from panic: %v", l, rp))
+				"error", newRecoveredError(rp, debug.Stack()))
 		}
 	}()
 
 	c()
 }
 
-func init() {
-	loggerPtr.Store(func() *Logger { var l Logger = slog.Default(); return &l }())
-}
-
 type Logger interface {
 	Error(msg string, args ...any)
 }
 
-var loggerPtr atomic.Pointer[Logger]
+func init() {
+	loggerPtr.Store(func() *Logger { var l Logger = slog.Default(); return &l }())
+}
 
-func logger() Logger {
-	return *loggerPtr.Load()
+var (
+	goHasMovingGC    atomic.Bool
+	enableStackTrace atomic.Bool
+	loggerPtr        atomic.Pointer[Logger]
+)
+
+func SetGoHasMovingGC() {
+	goHasMovingGC.Store(true)
+}
+
+func EnableStackTrace() {
+	enableStackTrace.Store(true)
 }
 
 func SetLogger(l Logger) {
 	if l != nil {
 		loggerPtr.Store(&l)
 	}
+}
+
+func logger() Logger {
+	return *loggerPtr.Load()
 }
 
 // Container keeps services constructors and lifetime scopes.

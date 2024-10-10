@@ -34,7 +34,7 @@ func (sk *ctxScopeKey) key() uintptr {
 }
 
 func (sk *ctxScopeKey) pin() {
-	if sk.ctx.Err() == nil && sk.ctx.Done() != nil {
+	if goHasMovingGC.Load() && sk.ctx.Err() == nil && sk.ctx.Done() != nil {
 		// We don't want sk.ctx pointer value to change so we need to pin it.
 		// Currently Go GC do not move values in memory (mostly) but there is no guarantee that GC implementation would't change.
 		// Any reliable source on Go is telling us not to relay on consistency of values returned from reflect.Value.Pointer() and
