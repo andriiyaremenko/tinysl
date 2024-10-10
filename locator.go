@@ -20,7 +20,7 @@ type locatorRecord struct {
 func newLocator(ctx context.Context, constructorsByType map[string]*locatorRecord) ServiceLocator {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	singletonsCleanupCh := make(chan cleanupNodeUpdate)
-	perContextCleanupCh := make(chan cleanupRecord)
+	perContextCleanupCh := make(chan cleanupRecord, 2) // (number - 1) of select cases
 	var wg sync.WaitGroup
 
 	singletons := make([]*locatorRecord, 0)
@@ -58,18 +58,20 @@ func newLocator(ctx context.Context, constructorsByType map[string]*locatorRecor
 		constructorsById:    constructorsByID,
 		perContext:          newContextInstances(perCtxIDs),
 		singletonsCleanupCh: singletonsCleanupCh,
-		perContextCleanUpCh: perContextCleanupCh,
+		sendPerContextCleanupUpdates: func(rec cleanupRecord) {
+			perContextCleanupCh <- rec
+		},
 	}
 }
 
 type locator struct {
-	err                 atomic.Pointer[error]
-	perContext          *contextInstances
-	constructorsByType  map[string]*locatorRecord
-	constructorsById    map[int]*locatorRecord
-	singletonsCleanupCh chan<- cleanupNodeUpdate
-	perContextCleanUpCh chan<- cleanupRecord
-	singletons          sync.Map
+	err                          atomic.Pointer[error]
+	perContext                   *contextInstances
+	constructorsByType           map[string]*locatorRecord
+	constructorsById             map[int]*locatorRecord
+	singletonsCleanupCh          chan<- cleanupNodeUpdate
+	sendPerContextCleanupUpdates func(cleanupRecord)
+	singletons                   sync.Map
 }
 
 func (l *locator) EnsureAvailable(serviceName string) {
@@ -266,40 +268,42 @@ func (l *locator) getPerContext(ctx context.Context, record *locatorRecord) (any
 
 	switch {
 	case !ok && record.constructorType == withErrorAndCleanUp:
-		go func() {
-			l.perContextCleanUpCh <- cleanupRecord{
+		l.sendPerContextCleanupUpdates(
+			cleanupRecord{
 				ctx: ctx,
 				cleanupNodeUpdate: cleanupNodeUpdate{
 					id: record.id,
 					fn: cleanUp,
 				},
-			}
-			l.perContextCleanUpCh <- cleanupRecord{
+			},
+		)
+		l.sendPerContextCleanupUpdates(
+			cleanupRecord{
 				ctx: ctx,
 				cleanupNodeUpdate: cleanupNodeUpdate{
 					fn: ctxCleanUp,
 				},
-			}
-		}()
+			},
+		)
 	case !ok:
-		go func() {
-			l.perContextCleanUpCh <- cleanupRecord{
+		l.sendPerContextCleanupUpdates(
+			cleanupRecord{
 				ctx: ctx,
 				cleanupNodeUpdate: cleanupNodeUpdate{
 					fn: ctxCleanUp,
 				},
-			}
-		}()
+			},
+		)
 	case record.constructorType == withErrorAndCleanUp:
-		go func() {
-			l.perContextCleanUpCh <- cleanupRecord{
+		l.sendPerContextCleanupUpdates(
+			cleanupRecord{
 				ctx: ctx,
 				cleanupNodeUpdate: cleanupNodeUpdate{
 					id: record.id,
 					fn: cleanUp,
 				},
-			}
-		}()
+			},
+		)
 	}
 
 	return service, nil

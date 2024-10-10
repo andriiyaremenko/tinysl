@@ -25,17 +25,6 @@ func BenchmarkParallelGetPerContext(b *testing.B) {
 	runNCallsInParallel[NameService](b, sl, 1)
 }
 
-func BenchmarkParallelGetPerContext4Services10Contexts(b *testing.B) {
-	sl, _ := tinysl.
-		Add(tinysl.PerContext, nameServiceConstructor).
-		Add(tinysl.PerContext, tableTimerConstructor).
-		Add(tinysl.PerContext, heroConstructor).
-		Add(tinysl.PerContext, impostorConstructor).
-		ServiceLocator()
-
-	runNCallsInParallel[*Impostor](b, sl, 10)
-}
-
 func BenchmarkParallelGetPerContext4Services1000Contexts(b *testing.B) {
 	sl, _ := tinysl.
 		Add(tinysl.PerContext, nameServiceConstructor).

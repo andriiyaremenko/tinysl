@@ -222,6 +222,8 @@ loop:
 		}
 
 		select {
+		case <-ctx.Done():
+			break loop
 		case rec := <-perContextCleanupCh:
 			pt := reflect.ValueOf(rec.ctx).Pointer()
 			node, ok := cleanups[pt]
@@ -246,11 +248,19 @@ loop:
 		case <-nextCtx.Done():
 			pt := reflect.ValueOf(nextCtx).Pointer()
 			if node, ok := cleanups[pt]; ok {
-				var fn Cleanup = node.clean
-				fn.CallWithRecovery(PerContext)
+				if node.len() > 0 {
+					go func() {
+						Cleanup(node.clean).CallWithRecovery(PerContext)
 
-				node.zeroOut()
-				pool.Put(node)
+						node.zeroOut()
+						pool.Put(node)
+					}()
+				} else {
+					Cleanup(node.clean).CallWithRecovery(PerContext)
+
+					node.zeroOut()
+					pool.Put(node)
+				}
 			}
 
 			delete(cleanups, pt)
@@ -275,8 +285,6 @@ loop:
 
 				nextCtx = ctxList[0]
 			}
-		case <-ctx.Done():
-			break loop
 		}
 	}
 
