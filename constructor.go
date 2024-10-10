@@ -4,8 +4,8 @@ import "reflect"
 
 type propertyFiller struct {
 	Type         reflect.Type
-	Dependencies []string
 	NewInstance  func(values ...any) (any, error)
+	Dependencies []string
 }
 
 // Type constructor that would automatically fill public fields using registered constructors.

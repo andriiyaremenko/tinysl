@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"time"
 )
 
@@ -12,8 +13,8 @@ type HelloService interface {
 }
 
 type ServiceWithPublicFields struct {
-	someProperty string
 	Dependency   NameService
+	someProperty string
 }
 
 func (s ServiceWithPublicFields) SomeProperty() string {
@@ -38,14 +39,29 @@ func (s NameProvider) Name() string {
 	return string(s)
 }
 
+func nameServiceDecoratorConstructor(prefix string) func(NameService) NameService {
+	return func(s NameService) NameService {
+		return &NameServiceDecorator{NameService: s, prefix: prefix}
+	}
+}
+
+type NameServiceDecorator struct {
+	NameService NameService
+	prefix      string
+}
+
+func (s *NameServiceDecorator) Name() string {
+	return s.prefix + " " + s.NameService.Name()
+}
+
 type TableTimer struct {
 	ctx         context.Context
 	nameService NameService
 }
 
 type Impostor struct {
-	name string
 	hero *Hero
+	name string
 }
 
 func (i *Impostor) Disguise() {
@@ -82,7 +98,7 @@ func (c *TableTimer) Countdown(w io.Writer, seconds int) {
 				return
 			case <-ticker.C:
 				total -= time.Second
-				_, _ = w.Write([]byte(fmt.Sprintf("%s have %d seconds left", c.nameService.Name(), total)))
+				_, _ = fmt.Fprintf(w, "%s have %d seconds left", c.nameService.Name(), total)
 
 				if total == 0 {
 					ticker.Stop()
@@ -116,4 +132,27 @@ func disguisedImpostorConstructor(impostor *Impostor) (*Hero, error) {
 
 func heroConstructor(nameService NameService) (*Hero, error) {
 	return &Hero{nameService.Name()}, nil
+}
+
+func nameServiceConstructorWithCleanup(cleanup func()) func() (NameService, func(), error) {
+	return func() (NameService, func(), error) {
+		return NameProvider("bob"), cleanup, nil
+	}
+}
+
+func heroConstructorWithCleanup(cleanup func()) func(nameService NameService) (*Hero, func(), error) {
+	return func(nameService NameService) (*Hero, func(), error) {
+		return &Hero{nameService.Name()}, cleanup, nil
+	}
+}
+
+func scaredHeroConstructorWithCleanup(nameService NameService) (*Hero, error) {
+	panic(fmt.Errorf("scared"))
+}
+
+func removeTime(_ []string, a slog.Attr) slog.Attr {
+	if a.Key == slog.TimeKey {
+		return slog.Attr{}
+	}
+	return a
 }

@@ -2,9 +2,13 @@ package tinysl_test
 
 import (
 	"context"
-	"sync"
-
 	"errors"
+	"fmt"
+	"runtime"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.uber.org/goleak"
@@ -13,6 +17,17 @@ import (
 )
 
 var _ = Describe("ServiceLocator", func() {
+	var ctx context.Context
+
+	BeforeEach(func() {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(context.Background())
+
+		DeferCleanup(func() {
+			cancel()
+		})
+	})
+
 	It("should return new instance every time for Transient", func() {
 		sl, err := tinysl.
 			Add(tinysl.Transient, nameServiceConstructor).
@@ -21,28 +36,6 @@ var _ = Describe("ServiceLocator", func() {
 
 		Expect(err).ShouldNot(HaveOccurred())
 
-		hero1, err := tinysl.Get[*Hero](context.TODO(), sl)
-
-		Expect(err).ShouldNot(HaveOccurred())
-
-		hero2, err := tinysl.Get[*Hero](context.TODO(), sl)
-
-		Expect(err).ShouldNot(HaveOccurred())
-		Expect(hero1).NotTo(BeIdenticalTo(hero2))
-	})
-
-	It("should return same instance for same context for PerContext", func() {
-		sl, err := tinysl.
-			Add(tinysl.Transient, nameServiceConstructor).
-			Add(tinysl.PerContext, heroConstructor).
-			ServiceLocator()
-
-		Expect(err).ShouldNot(HaveOccurred())
-
-		ctx := context.TODO()
-		ctx, cancel := context.WithCancel(ctx)
-		defer cancel()
-
 		hero1, err := tinysl.Get[*Hero](ctx, sl)
 
 		Expect(err).ShouldNot(HaveOccurred())
@@ -50,12 +43,32 @@ var _ = Describe("ServiceLocator", func() {
 		hero2, err := tinysl.Get[*Hero](ctx, sl)
 
 		Expect(err).ShouldNot(HaveOccurred())
+		Expect(hero1).NotTo(BeIdenticalTo(hero2))
+	})
+
+	It("should return same instance for same context for PerContext", func() {
+		sl, err := tinysl.
+			Add(tinysl.PerContext, nameServiceConstructor).
+			Add(tinysl.PerContext, heroConstructor).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		hero1, err1 := tinysl.Get[*Hero](ctx, sl)
+
+		Expect(err1).ShouldNot(HaveOccurred())
+
+		runtime.GC()
+
+		hero2, err2 := tinysl.Get[*Hero](ctx, sl)
+
+		Expect(err2).ShouldNot(HaveOccurred())
 		Expect(hero1).To(BeIdenticalTo(hero2))
 	})
 
 	It("should return new instance for different context for PerContext", func() {
 		sl, err := tinysl.
-			Add(tinysl.Transient, nameServiceConstructor).
+			Add(tinysl.PerContext, nameServiceConstructor).
 			Add(tinysl.PerContext, heroConstructor).
 			ServiceLocator()
 
@@ -80,7 +93,7 @@ var _ = Describe("ServiceLocator", func() {
 
 	It("should return error for cancelled context for PerContext", func() {
 		sl, err := tinysl.
-			Add(tinysl.Transient, nameServiceConstructor).
+			Add(tinysl.PerContext, nameServiceConstructor).
 			Add(tinysl.PerContext, heroConstructor).
 			ServiceLocator()
 
@@ -99,7 +112,7 @@ var _ = Describe("ServiceLocator", func() {
 
 	It("should return error for nil context for PerContext", func() {
 		sl, err := tinysl.
-			Add(tinysl.Transient, nameServiceConstructor).
+			Add(tinysl.PerContext, nameServiceConstructor).
 			Add(tinysl.PerContext, heroConstructor).
 			ServiceLocator()
 
@@ -114,21 +127,20 @@ var _ = Describe("ServiceLocator", func() {
 
 	It("should always return the same instance for Singleton", func() {
 		sl, err := tinysl.
-			Add(tinysl.Transient, nameServiceConstructor).
+			Add(tinysl.Singleton, nameServiceConstructor).
 			Add(tinysl.Singleton, heroConstructor).
 			ServiceLocator()
 		Expect(err).ShouldNot(HaveOccurred())
 
-		ctx1 := context.TODO()
-		ctx2, cancel := context.WithCancel(ctx1)
+		ctx1, cancel := context.WithCancel(ctx)
 
 		defer cancel()
 
-		hero1, err := tinysl.Get[*Hero](ctx1, sl)
+		hero1, err := tinysl.Get[*Hero](ctx, sl)
 
 		Expect(err).ShouldNot(HaveOccurred())
 
-		hero2, err := tinysl.Get[*Hero](ctx2, sl)
+		hero2, err := tinysl.Get[*Hero](ctx1, sl)
 
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(hero1).To(BeIdenticalTo(hero2))
@@ -144,7 +156,6 @@ var _ = Describe("ServiceLocator", func() {
 
 		Expect(err).ShouldNot(HaveOccurred())
 
-		ctx := context.TODO()
 		impostor, err := tinysl.Get[*Impostor](ctx, sl)
 
 		Expect(err).ShouldNot(HaveOccurred())
@@ -161,6 +172,21 @@ var _ = Describe("ServiceLocator", func() {
 		Expect(nameService.Name()).To(Equal("Bob"))
 	})
 
+	It("should decorate services", func() {
+		sl, err := tinysl.
+			Add(tinysl.PerContext, nameServiceConstructor).
+			Decorate(tinysl.PerContext, nameServiceDecoratorConstructor("decorated")).
+			Decorate(tinysl.PerContext, nameServiceDecoratorConstructor("twice")).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		s, err := tinysl.Get[NameService](ctx, sl)
+
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(s.Name()).To(Equal("twice decorated Bob"))
+	})
+
 	It("should return error on missing constructor", func() {
 		sl, err := tinysl.
 			Add(tinysl.Transient, nameServiceConstructor).
@@ -170,7 +196,6 @@ var _ = Describe("ServiceLocator", func() {
 
 		Expect(err).ShouldNot(HaveOccurred())
 
-		ctx := context.TODO()
 		_, err = tinysl.Get[*Impostor](ctx, sl)
 
 		Expect(err).Should(HaveOccurred())
@@ -186,9 +211,8 @@ var _ = Describe("ServiceLocator", func() {
 
 			Expect(err).ShouldNot(HaveOccurred())
 
-			ctx1 := context.TODO()
-			ctx1, cancel1 := context.WithCancel(ctx1)
-			ctx2, cancel2 := context.WithCancel(ctx1)
+			ctx1, cancel1 := context.WithCancel(ctx)
+			ctx2, cancel2 := context.WithCancel(ctx)
 
 			var hero1, hero2, hero3 *Hero
 			var err1, err2, err3 error
@@ -196,6 +220,8 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
+				defer GinkgoRecover()
+
 				hero1, err1 = tinysl.Get[*Hero](ctx1, sl)
 
 				Expect(err1).ShouldNot(HaveOccurred())
@@ -204,6 +230,8 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
+				defer GinkgoRecover()
+
 				hero2, err2 = tinysl.Get[*Hero](ctx2, sl)
 
 				Expect(err2).ShouldNot(HaveOccurred())
@@ -212,6 +240,8 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
+				defer GinkgoRecover()
+
 				hero3, err3 = tinysl.Get[*Hero](ctx1, sl)
 
 				Expect(err3).ShouldNot(HaveOccurred())
@@ -220,6 +250,8 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
+				defer GinkgoRecover()
+
 				_, err = tinysl.Get[NameService](ctx1, sl)
 
 				Expect(err).ShouldNot(HaveOccurred())
@@ -247,9 +279,8 @@ var _ = Describe("ServiceLocator", func() {
 
 			Expect(err).ShouldNot(HaveOccurred())
 
-			ctx1 := context.TODO()
-			ctx1, cancel1 := context.WithCancel(ctx1)
-			ctx2, cancel2 := context.WithCancel(ctx1)
+			ctx1, cancel1 := context.WithCancel(ctx)
+			ctx2, cancel2 := context.WithCancel(ctx)
 
 			var hero1, hero2, hero3 *Hero
 			var err1, err2, err3 error
@@ -257,6 +288,8 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
+				defer GinkgoRecover()
+
 				hero1, err1 = tinysl.Get[*Hero](ctx1, sl)
 
 				Expect(err1).ShouldNot(HaveOccurred())
@@ -265,6 +298,8 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
+				defer GinkgoRecover()
+
 				hero2, err2 = tinysl.Get[*Hero](ctx2, sl)
 
 				Expect(err2).ShouldNot(HaveOccurred())
@@ -273,6 +308,8 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
+				defer GinkgoRecover()
+
 				hero3, err3 = tinysl.Get[*Hero](ctx1, sl)
 
 				Expect(err3).ShouldNot(HaveOccurred())
@@ -281,6 +318,8 @@ var _ = Describe("ServiceLocator", func() {
 
 			wg.Add(1)
 			go func() {
+				defer GinkgoRecover()
+
 				_, err = tinysl.Get[NameService](ctx1, sl)
 
 				Expect(err).ShouldNot(HaveOccurred())
@@ -308,9 +347,8 @@ var _ = Describe("ServiceLocator", func() {
 
 			Expect(err).ShouldNot(HaveOccurred())
 
-			ctx1 := context.TODO()
-			ctx1, cancel1 := context.WithCancel(ctx1)
-			ctx2, cancel2 := context.WithCancel(ctx1)
+			ctx1, cancel1 := context.WithCancel(ctx)
+			ctx2, cancel2 := context.WithCancel(ctx)
 
 			var hero1, hero2, hero3 *Hero
 
@@ -341,6 +379,7 @@ var _ = Describe("ServiceLocator", func() {
 			Expect(hero1).To(BeIdenticalTo(hero3))
 		}
 
+		time.Sleep(time.Millisecond)
 		err := goleak.Find(
 			goleak.
 				IgnoreTopFunction(
@@ -350,10 +389,25 @@ var _ = Describe("ServiceLocator", func() {
 				IgnoreTopFunction(
 					"github.com/onsi/ginkgo/v2/internal/interrupt_handler.(*InterruptHandler).registerForInterrupts.func2",
 				),
+			goleak.
+				IgnoreAnyFunction(
+					"github.com/onsi/ginkgo/v2/internal.RegisterForProgressSignal.func1",
+				),
+			goleak.
+				IgnoreAnyFunction(
+					"github.com/andriiyaremenko/tinysl.perContextCleanupWorker",
+				),
+			goleak.
+				IgnoreAnyFunction(
+					"github.com/andriiyaremenko/tinysl.singletonCleanupWorker",
+				),
+			goleak.
+				IgnoreAnyFunction(
+					"os/signal.NotifyContext.func1",
+				),
 		)
 
 		Expect(err).ShouldNot(HaveOccurred())
-
 	})
 
 	It("should return error if constructor returned error", func() {
@@ -361,16 +415,11 @@ var _ = Describe("ServiceLocator", func() {
 			return nil, errors.New("some unfortunate error")
 		}
 		sl, err := tinysl.
-			Add(tinysl.Transient, errConstructor).
+			Add(tinysl.PerContext, errConstructor).
 			Add(tinysl.PerContext, heroConstructor).
 			ServiceLocator()
 
 		Expect(err).ShouldNot(HaveOccurred())
-
-		ctx := context.TODO()
-		ctx, cancel := context.WithCancel(ctx)
-
-		defer cancel()
 
 		_, err = tinysl.Get[*Hero](ctx, sl)
 
@@ -385,16 +434,11 @@ var _ = Describe("ServiceLocator", func() {
 
 	It("should work with T", func() {
 		sl, err := tinysl.
-			Add(tinysl.Transient, nameServiceConstructor).
+			Add(tinysl.PerContext, nameServiceConstructor).
 			Add(tinysl.PerContext, tinysl.T[ServiceWithPublicFields]).
 			ServiceLocator()
 
 		Expect(err).ShouldNot(HaveOccurred())
-
-		ctx := context.TODO()
-		ctx, cancel := context.WithCancel(ctx)
-
-		defer cancel()
 
 		service, err := tinysl.Get[ServiceWithPublicFields](ctx, sl)
 
@@ -406,16 +450,11 @@ var _ = Describe("ServiceLocator", func() {
 
 	It("should work with P", func() {
 		sl, err := tinysl.
-			Add(tinysl.Transient, nameServiceConstructor).
+			Add(tinysl.PerContext, nameServiceConstructor).
 			Add(tinysl.PerContext, tinysl.P[ServiceWithPublicFields]).
 			ServiceLocator()
 
 		Expect(err).ShouldNot(HaveOccurred())
-
-		ctx := context.TODO()
-		ctx, cancel := context.WithCancel(ctx)
-
-		defer cancel()
 
 		service, err := tinysl.Get[*ServiceWithPublicFields](ctx, sl)
 
@@ -427,16 +466,11 @@ var _ = Describe("ServiceLocator", func() {
 
 	It("should work with I", func() {
 		sl, err := tinysl.
-			Add(tinysl.Transient, nameServiceConstructor).
+			Add(tinysl.PerContext, nameServiceConstructor).
 			Add(tinysl.PerContext, tinysl.I[HelloService, ServiceWithPublicFields]).
 			ServiceLocator()
 
 		Expect(err).ShouldNot(HaveOccurred())
-
-		ctx := context.TODO()
-		ctx, cancel := context.WithCancel(ctx)
-
-		defer cancel()
 
 		service, err := tinysl.Get[HelloService](ctx, sl)
 
@@ -444,5 +478,216 @@ var _ = Describe("ServiceLocator", func() {
 
 		Expect(service.Hello()).To(Equal("Hello Bob"))
 		Expect(service.(*ServiceWithPublicFields).SomeProperty()).To(BeEmpty())
+	})
+
+	It("should use cleanup function for PerContext", func() {
+		cleaned := make(chan struct{})
+		sl, err := tinysl.
+			Add(tinysl.PerContext, nameServiceConstructor).
+			Add(tinysl.PerContext, heroConstructorWithCleanup(func() { close(cleaned) })).
+			ServiceLocator()
+		Expect(err).ShouldNot(HaveOccurred())
+
+		ctx, cancel := context.WithCancel(ctx)
+		_, err = tinysl.Get[*Hero](ctx, sl)
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		time.Sleep(time.Millisecond)
+		cancel()
+		Eventually(cleaned).Should(BeClosed())
+	})
+
+	It("should use cleanup function for Singleton", func() {
+		appCtx := context.Background()
+		appCtx, cancel := context.WithCancel(appCtx)
+		cleaned := make(chan struct{})
+		sl, err := tinysl.
+			New(tinysl.WithSingletonCleanupContext(appCtx)).
+			Add(tinysl.Singleton, nameServiceConstructor).
+			Add(tinysl.Singleton, heroConstructorWithCleanup(func() { close(cleaned) })).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		_, err = tinysl.Get[*Hero](ctx, sl)
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		time.Sleep(time.Millisecond)
+		cancel()
+		Eventually(cleaned).Should(BeClosed())
+	})
+
+	It("should handle panic", func() {
+		sl, err := tinysl.
+			Add(tinysl.PerContext, nameServiceConstructor).
+			Add(tinysl.PerContext, scaredHeroConstructorWithCleanup).
+			ServiceLocator()
+		Expect(err).ShouldNot(HaveOccurred())
+
+		_, err = tinysl.Get[*Hero](ctx, sl)
+
+		Expect(err).Should(HaveOccurred())
+		Expect(err).Should(BeAssignableToTypeOf(new(tinysl.ServiceBuilderError)))
+		Expect(errors.Unwrap(err)).Should(BeAssignableToTypeOf(new(tinysl.ConstructorError)))
+		Expect(errors.Unwrap(errors.Unwrap(err))).Should(BeAssignableToTypeOf(new(tinysl.RecoveredError)))
+		Expect(errors.Unwrap(errors.Unwrap(err)).(*tinysl.RecoveredError).Panic).Should(MatchError(fmt.Errorf("scared")))
+	})
+
+	It("should handle panic during cleanup function for PerContext", func() {
+		cleaned := make(chan struct{})
+		sl, err := tinysl.
+			Add(tinysl.PerContext, nameServiceConstructor).
+			Add(tinysl.PerContext, heroConstructorWithCleanup(func() { close(cleaned); panic("oops") })).
+			ServiceLocator()
+		Expect(err).ShouldNot(HaveOccurred())
+
+		ctx, cancel := context.WithCancel(ctx)
+		_, err = tinysl.Get[*Hero](ctx, sl)
+
+		Expect(err).ShouldNot(HaveOccurred())
+		time.Sleep(time.Millisecond)
+		cancel()
+		Eventually(cleaned).Should(BeClosed())
+	})
+
+	It("should handle panic during cleanup function for Singleton", func() {
+		appCtx := context.Background()
+		appCtx, cancel := context.WithCancel(appCtx)
+
+		cleaned := make(chan struct{})
+		sl, err := tinysl.
+			New(tinysl.WithSingletonCleanupContext(appCtx)).
+			Add(tinysl.Singleton, nameServiceConstructor).
+			Add(tinysl.Singleton, heroConstructorWithCleanup(func() { close(cleaned); panic("oops") })).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		_, err = tinysl.Get[*Hero](ctx, sl)
+
+		Expect(err).ShouldNot(HaveOccurred())
+		time.Sleep(time.Millisecond)
+		cancel()
+		Eventually(cleaned).Should(BeClosed())
+	})
+
+	It("should keep cleanup order for PerContext", func() {
+		chFirst := make(chan time.Time)
+		chLast := make(chan time.Time)
+		sl, err := tinysl.
+			Add(tinysl.PerContext, nameServiceConstructorWithCleanup(func() { chLast <- time.Now() })).
+			Add(tinysl.PerContext, heroConstructorWithCleanup(func() { chFirst <- time.Now() })).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		ctx, cancel := context.WithCancel(ctx)
+		_, err = tinysl.Get[*Hero](ctx, sl)
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		time.Sleep(time.Millisecond)
+		cancel()
+
+		var first, last time.Time
+
+		Eventually(chFirst).Should(Receive(&first))
+		Eventually(chLast).Should(Receive(&last))
+		Expect(first.Before(last)).To(BeTrue())
+	})
+
+	It("should keep cleanup order for Singleton", func() {
+		appCtx := context.Background()
+		appCtx, cancel := context.WithCancel(appCtx)
+
+		chFirst := make(chan time.Time)
+		chLast := make(chan time.Time)
+		sl, err := tinysl.
+			New(tinysl.WithSingletonCleanupContext(appCtx)).
+			Add(tinysl.Singleton, nameServiceConstructorWithCleanup(func() { chLast <- time.Now() })).
+			Add(tinysl.Singleton, heroConstructorWithCleanup(func() { chFirst <- time.Now() })).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		_, err = tinysl.Get[*Hero](ctx, sl)
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		time.Sleep(time.Millisecond)
+		cancel()
+
+		var first, last time.Time
+
+		Eventually(chFirst).Should(Receive(&first))
+		Eventually(chLast).Should(Receive(&last))
+		Expect(first.Before(last)).To(BeTrue())
+	})
+
+	It("should shuffle contexts for cleanup if one takes too long", func() {
+		type timeTracker atomic.Pointer[func(time.Time)]
+		withTimeTracker := atomic.Pointer[func(time.Time)]{}
+		ptrToTimeTracker := func(fn func(time.Time)) *func(time.Time) { return &fn }
+		withTimeTracker.Store(ptrToTimeTracker(func(time.Time) {}))
+
+		sl, err := tinysl.
+			Add(tinysl.PerContext, nameServiceConstructor).
+			Add(tinysl.PerContext, heroConstructorWithCleanup(func() { (*withTimeTracker.Load())(time.Now()) })).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		var first, last atomic.Pointer[time.Time]
+		last.Store(func() *time.Time { t := time.Now(); return &t }())
+		first.Store(func() *time.Time { t := time.Now(); return &t }())
+		syncCh := make(chan struct{})
+		var wg sync.WaitGroup
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ctx, cancel := context.WithCancel(ctx)
+			_, err := tinysl.Get[*Hero](ctx, sl)
+			close(syncCh)
+
+			Expect(err).ShouldNot(HaveOccurred())
+			time.Sleep(3 * time.Second)
+			withTimeTracker.Store(ptrToTimeTracker(func(t time.Time) { last.Store(&t) }))
+			cancel()
+			time.Sleep(time.Millisecond)
+		}()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-syncCh
+			ctx, cancel := context.WithCancel(ctx)
+			_, err := tinysl.Get[*Hero](ctx, sl)
+
+			Expect(err).ShouldNot(HaveOccurred())
+			time.Sleep(time.Millisecond)
+			withTimeTracker.Store(ptrToTimeTracker(func(t time.Time) { first.Store(&t) }))
+			cancel()
+			time.Sleep(time.Millisecond)
+		}()
+
+		wg.Wait()
+
+		Expect(first.Load().Before(*last.Load())).To(BeTrue())
+	})
+
+	It("should work with constructor without error", func() {
+		sl, err := tinysl.
+			Add(tinysl.Singleton, func() NameProvider { return NameProvider("Bob") }).
+			ServiceLocator()
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		s, err := tinysl.Get[NameProvider](ctx, sl)
+
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(s).ShouldNot(BeNil())
 	})
 })
