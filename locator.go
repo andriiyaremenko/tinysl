@@ -20,7 +20,7 @@ type locatorRecord struct {
 func newLocator(ctx context.Context, constructorsByType map[string]*locatorRecord) ServiceLocator {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	singletonsCleanupCh := make(chan cleanupNodeUpdate)
-	perContextCleanupCh := make(chan cleanupRecord, 2) // (number - 1) of select cases
+	var perContextCleanupChs [6]chan cleanupRecord // (number - 1) of select cases
 	var wg sync.WaitGroup
 
 	singletons := make([]*locatorRecord, 0)
@@ -38,15 +38,15 @@ func newLocator(ctx context.Context, constructorsByType map[string]*locatorRecor
 	}
 	go singletonCleanupWorker(ctx, cancel, buildCleanupNodes(singletons), singletonsCleanupCh, &wg)
 
-	wg.Add(1)
-	go perContextCleanupWorker(
-		ctx,
-		&wg,
-		perContextCleanupCh,
-		func() cleanupNode {
-			return buildCleanupNodes(perContexts)
-		},
-	)
+	cleanupNodeBuilder := func() cleanupNode {
+		return buildCleanupNodes(perContexts)
+	}
+
+	wg.Add(6)
+	for i := range 6 {
+		perContextCleanupChs[i] = make(chan cleanupRecord, 2) // (number - 1) of select cases
+		go perContextCleanupWorker(ctx, &wg, perContextCleanupChs[i], cleanupNodeBuilder)
+	}
 
 	constructorsByID := make(map[int]*locatorRecord, len(constructorsByType))
 	for _, rec := range constructorsByType {
@@ -58,8 +58,8 @@ func newLocator(ctx context.Context, constructorsByType map[string]*locatorRecor
 		constructorsById:    constructorsByID,
 		perContext:          newContextInstances(perCtxIDs),
 		singletonsCleanupCh: singletonsCleanupCh,
-		sendPerContextCleanupUpdates: func(rec cleanupRecord) {
-			perContextCleanupCh <- rec
+		sendPerContextCleanupUpdates: func(partIndex int, rec cleanupRecord) {
+			perContextCleanupChs[partIndex] <- rec
 		},
 	}
 }
@@ -70,7 +70,7 @@ type locator struct {
 	constructorsByType           map[string]*locatorRecord
 	constructorsById             map[int]*locatorRecord
 	singletonsCleanupCh          chan<- cleanupNodeUpdate
-	sendPerContextCleanupUpdates func(cleanupRecord)
+	sendPerContextCleanupUpdates func(int, cleanupRecord)
 	singletons                   sync.Map
 }
 
@@ -250,7 +250,7 @@ func (l *locator) getPerContext(ctx context.Context, record *locatorRecord) (any
 	}
 
 	ctxKey := getCtxScopeKey(ctx)
-	scope, ctxCleanUp, ok := l.perContext.get(ctxKey, record.id)
+	scope, partIndex, ctxCleanUp, ok := l.perContext.get(ctxKey, record.id)
 
 	scope.lock()
 	defer scope.unlock()
@@ -269,6 +269,7 @@ func (l *locator) getPerContext(ctx context.Context, record *locatorRecord) (any
 	switch {
 	case !ok && record.constructorType == withErrorAndCleanUp:
 		l.sendPerContextCleanupUpdates(
+			partIndex,
 			cleanupRecord{
 				ctx: ctx,
 				cleanupNodeUpdate: cleanupNodeUpdate{
@@ -278,6 +279,7 @@ func (l *locator) getPerContext(ctx context.Context, record *locatorRecord) (any
 			},
 		)
 		l.sendPerContextCleanupUpdates(
+			partIndex,
 			cleanupRecord{
 				ctx: ctx,
 				cleanupNodeUpdate: cleanupNodeUpdate{
@@ -287,6 +289,7 @@ func (l *locator) getPerContext(ctx context.Context, record *locatorRecord) (any
 		)
 	case !ok:
 		l.sendPerContextCleanupUpdates(
+			partIndex,
 			cleanupRecord{
 				ctx: ctx,
 				cleanupNodeUpdate: cleanupNodeUpdate{
@@ -296,6 +299,7 @@ func (l *locator) getPerContext(ctx context.Context, record *locatorRecord) (any
 		)
 	case record.constructorType == withErrorAndCleanUp:
 		l.sendPerContextCleanupUpdates(
+			partIndex,
 			cleanupRecord{
 				ctx: ctx,
 				cleanupNodeUpdate: cleanupNodeUpdate{

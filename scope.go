@@ -87,18 +87,41 @@ func newContextInstances(keys []int) *contextInstances {
 
 type contextInstances struct {
 	serviceScopesPool sync.Pool
-	m                 sync.Map
+	partitions        [6]sync.Map
 	keys              []int
 }
 
-func (ci *contextInstances) get(ctxKey *ctxScopeKey, key int) (*serviceScope, func(), bool) {
-	servicesVal, ok := ci.m.LoadOrStore(ctxKey.key(), ci.serviceScopesPool.Get())
+func (ci *contextInstances) get(ctxKey *ctxScopeKey, key int) (*serviceScope, int, func(), bool) {
+	ctxKV := ctxKey.key()
+
+	var partIndex int
+	if n := ctxKV / 3; ctxKV == n*3 {
+		if n := ctxKV / 6; ctxKV == n*6 {
+			partIndex = 5
+		} else {
+			partIndex = 4
+		}
+	} else if n := ctxKV / 2; ctxKV == n*2 {
+		if n := ctxKV / 4; ctxKV == n*4 {
+			partIndex = 3
+		} else {
+			partIndex = 2
+		}
+	} else {
+		if n := (ctxKV - 1) / 3; ctxKV-1 == n*3 {
+			partIndex = 1
+		} else {
+			partIndex = 0
+		}
+	}
+
+	servicesVal, ok := ci.partitions[partIndex].LoadOrStore(ctxKV, ci.serviceScopesPool.Get())
 	services := servicesVal.(map[int]*serviceScope)
 
 	if !ok {
 		ctxKey.pin()
-		return services[key], func() {
-			ci.m.Delete(ctxKey.key())
+		return services[key], partIndex, func() {
+			ci.partitions[partIndex].Delete(ctxKV)
 			for key := range services {
 				services[key] = &serviceScope{}
 			}
@@ -109,5 +132,5 @@ func (ci *contextInstances) get(ctxKey *ctxScopeKey, key int) (*serviceScope, fu
 		cleanCtxKey(ctxKey)
 	}
 
-	return services[key], nil, true
+	return services[key], partIndex, nil, true
 }
