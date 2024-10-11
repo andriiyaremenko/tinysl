@@ -20,7 +20,7 @@ type locatorRecord struct {
 func newLocator(ctx context.Context, constructorsByType map[string]*locatorRecord) ServiceLocator {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	singletonsCleanupCh := make(chan cleanupNodeUpdate)
-	var perContextCleanupChs [6]chan cleanupRecord // (number - 1) of select cases
+	var perContextCleanupChs [9]chan cleanupRecord // (number - 1) of select cases
 	var wg sync.WaitGroup
 
 	singletons := make([]*locatorRecord, 0)
@@ -42,8 +42,8 @@ func newLocator(ctx context.Context, constructorsByType map[string]*locatorRecor
 		return buildCleanupNodes(perContexts)
 	}
 
-	wg.Add(6)
-	for i := range 6 {
+	wg.Add(9)
+	for i := range 9 {
 		perContextCleanupChs[i] = make(chan cleanupRecord, 2) // (number - 1) of select cases
 		go perContextCleanupWorker(ctx, &wg, perContextCleanupChs[i], cleanupNodeBuilder)
 	}

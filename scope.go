@@ -87,7 +87,7 @@ func newContextInstances(keys []int) *contextInstances {
 
 type contextInstances struct {
 	serviceScopesPool sync.Pool
-	partitions        [6]sync.Map
+	partitions        [9]sync.Map
 	keys              []int
 }
 
@@ -96,19 +96,29 @@ func (ci *contextInstances) get(ctxKey *ctxScopeKey, key int) (*serviceScope, in
 
 	var partIndex int
 	if n := ctxKV / 3; ctxKV == n*3 {
-		if n := ctxKV / 6; ctxKV == n*6 {
-			partIndex = 5
+		if n := ctxKV / 9; ctxKV == n*9 {
+			partIndex = 8
+		} else if n := ctxKV / 6; ctxKV == n*6 {
+			partIndex = 7
 		} else {
-			partIndex = 4
+			partIndex = 6
 		}
 	} else if n := ctxKV / 2; ctxKV == n*2 {
-		if n := ctxKV / 4; ctxKV == n*4 {
-			partIndex = 3
+		if n := ctxKV / 7; ctxKV == n*7 {
+			partIndex = 5
+		} else if n := ctxKV / 5; ctxKV == n*5 {
+			partIndex = 5
+		} else if n := ctxKV / 4; ctxKV == n*4 {
+			partIndex = 4
 		} else {
-			partIndex = 2
+			partIndex = 3
 		}
 	} else {
-		if n := (ctxKV - 1) / 3; ctxKV-1 == n*3 {
+		if n := ctxKV / 7; ctxKV == n*7 {
+			partIndex = 2
+		} else if n := ctxKV / 5; ctxKV == n*5 {
+			partIndex = 2
+		} else if n := (ctxKV - 1) / 3; ctxKV-1 == n*3 {
 			partIndex = 1
 		} else {
 			partIndex = 0
