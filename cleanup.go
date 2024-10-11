@@ -248,19 +248,10 @@ loop:
 		case <-nextCtx.Done():
 			pt := reflect.ValueOf(nextCtx).Pointer()
 			if node, ok := cleanups[pt]; ok {
-				if node.len() > 0 {
-					go func() {
-						Cleanup(node.clean).CallWithRecovery(PerContext)
+				Cleanup(node.clean).CallWithRecovery(PerContext)
 
-						node.zeroOut()
-						pool.Put(node)
-					}()
-				} else {
-					Cleanup(node.clean).CallWithRecovery(PerContext)
-
-					node.zeroOut()
-					pool.Put(node)
-				}
+				node.zeroOut()
+				pool.Put(node)
 			}
 
 			delete(cleanups, pt)
