@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-var divider = rand.Uint64N(100_000_000)
+var divider = rand.Uint64N(10_000_000)
 
 var ctxScopeKeyPool = sync.Pool{
 	New: func() any {
@@ -107,22 +107,18 @@ func (ci *contextInstances) get(ctxKey *ctxScopeKey, key int) (*serviceScope, in
 		} else {
 			partIndex = 6
 		}
-	} else if n := i / 2; i == n*2 {
-		if n := i / 7; i == n*7 {
+	} else if n := (i + 1) / 3; i+1 == n*3 {
+		if n := (i + 1) / 9; i+1 == n*9 {
 			partIndex = 5
-		} else if n := i / 5; i == n*5 {
-			partIndex = 5
-		} else if n := i / 4; i == n*4 {
+		} else if n := (i + 1) / 6; (i + 1) == n*6 {
 			partIndex = 4
 		} else {
 			partIndex = 3
 		}
 	} else {
-		if n := i / 7; i == n*7 {
+		if n := (i + 2) / 9; i+2 == n*9 {
 			partIndex = 2
-		} else if n := i / 5; i == n*5 {
-			partIndex = 2
-		} else if n := (i - 1) / 3; i-1 == n*3 {
+		} else if n := (i + 2) / 6; (i + 2) == n*6 {
 			partIndex = 1
 		} else {
 			partIndex = 0
