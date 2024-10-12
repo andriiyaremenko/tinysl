@@ -2,10 +2,13 @@ package tinysl
 
 import (
 	"context"
+	"math/rand/v2"
 	"reflect"
 	"runtime"
 	"sync"
 )
+
+var divider = rand.Uint64N(100_000_000)
 
 var ctxScopeKeyPool = sync.Pool{
 	New: func() any {
@@ -29,8 +32,8 @@ type ctxScopeKey struct {
 	ctx context.Context
 }
 
-func (sk *ctxScopeKey) key() uintptr {
-	return reflect.ValueOf(sk.ctx).Pointer()
+func (sk *ctxScopeKey) key() uint64 {
+	return uint64(reflect.ValueOf(sk.ctx).Pointer())
 }
 
 func (sk *ctxScopeKey) pin() {
@@ -94,31 +97,32 @@ type contextInstances struct {
 func (ci *contextInstances) get(ctxKey *ctxScopeKey, key int) (*serviceScope, int, func(), bool) {
 	ctxKV := ctxKey.key()
 
+	i := ctxKey.key() / divider
 	var partIndex int
-	if n := ctxKV / 3; ctxKV == n*3 {
-		if n := ctxKV / 9; ctxKV == n*9 {
+	if n := i / 3; i == n*3 {
+		if n := i / 9; i == n*9 {
 			partIndex = 8
-		} else if n := ctxKV / 6; ctxKV == n*6 {
+		} else if n := i / 6; i == n*6 {
 			partIndex = 7
 		} else {
 			partIndex = 6
 		}
-	} else if n := ctxKV / 2; ctxKV == n*2 {
-		if n := ctxKV / 7; ctxKV == n*7 {
+	} else if n := i / 2; i == n*2 {
+		if n := i / 7; i == n*7 {
 			partIndex = 5
-		} else if n := ctxKV / 5; ctxKV == n*5 {
+		} else if n := i / 5; i == n*5 {
 			partIndex = 5
-		} else if n := ctxKV / 4; ctxKV == n*4 {
+		} else if n := i / 4; i == n*4 {
 			partIndex = 4
 		} else {
 			partIndex = 3
 		}
 	} else {
-		if n := ctxKV / 7; ctxKV == n*7 {
+		if n := i / 7; i == n*7 {
 			partIndex = 2
-		} else if n := ctxKV / 5; ctxKV == n*5 {
+		} else if n := i / 5; i == n*5 {
 			partIndex = 2
-		} else if n := (ctxKV - 1) / 3; ctxKV-1 == n*3 {
+		} else if n := (i - 1) / 3; i-1 == n*3 {
 			partIndex = 1
 		} else {
 			partIndex = 0
