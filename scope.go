@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-var divider = rand.Uint64N(10_000_000)
+var divider = rand.Uint64N(1_000_000)
 
 var ctxScopeKeyPool = sync.Pool{
 	New: func() any {
@@ -97,7 +97,7 @@ type contextInstances struct {
 func (ci *contextInstances) get(ctxKey *ctxScopeKey, key int) (*serviceScope, int, func(), bool) {
 	ctxKV := ctxKey.key()
 
-	i := ctxKey.key() / divider
+	i := ctxKV % divider
 	var partIndex int
 	if n := i / 3; i == n*3 {
 		if n := i / 9; i == n*9 {
