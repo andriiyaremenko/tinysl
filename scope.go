@@ -2,13 +2,12 @@ package tinysl
 
 import (
 	"context"
-	"math/rand/v2"
 	"reflect"
 	"runtime"
 	"sync"
 )
 
-var divider = rand.Uint64N(1_000_000)
+var mod = uint64(866285) // just a random uint with good enough spread
 
 var ctxScopeKeyPool = sync.Pool{
 	New: func() any {
@@ -97,7 +96,7 @@ type contextInstances struct {
 func (ci *contextInstances) get(ctxKey *ctxScopeKey, key int) (*serviceScope, int, func(), bool) {
 	ctxKV := ctxKey.key()
 
-	i := ctxKV % divider
+	i := ctxKV % mod
 	var partIndex int
 	if n := i / 3; i == n*3 {
 		if n := i / 9; i == n*9 {
