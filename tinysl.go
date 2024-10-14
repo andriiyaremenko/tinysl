@@ -2,20 +2,83 @@ package tinysl
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"reflect"
+	"runtime/debug"
+	"sync/atomic"
 )
+
+const (
+	// For Transient service new instance is returned.
+	Transient Lifetime = iota
+	// For PerContext service same instance is returned for same context.Context.
+	PerContext
+	// For Singleton service same instance is returned always.
+	Singleton
+)
+
+func (l Lifetime) String() string {
+	switch l {
+	case Transient:
+		return "Transient"
+	case PerContext:
+		return "PerContext"
+	case Singleton:
+		return "Singleton"
+	default:
+		return "Unsupported"
+	}
+}
+
+type Lifetime int
+
+type Cleanup func()
+
+func (c Cleanup) CallWithRecovery(l Lifetime) {
+	defer func() {
+		if rp := recover(); rp != nil {
+			logger().Error(
+				fmt.Sprintf("recovered from panic during %s cleanup", l),
+				"error", newRecoveredError(rp, debug.Stack()))
+		}
+	}()
+
+	c()
+}
+
+type Logger interface {
+	Error(msg string, args ...any)
+}
+
+func init() {
+	loggerPtr.Store(func() *Logger { var l Logger = slog.Default(); return &l }())
+}
 
 var (
-	// For Transient service new instance is returned.
-	Transient Lifetime = "Transient"
-	// For PerContext service same instance is returned for same context.Context.
-	PerContext Lifetime = "PerContext"
-	// For Singleton service same instance is returned always.
-	Singleton Lifetime = "Singleton"
+	goHasMovingGC    atomic.Bool
+	enableStackTrace atomic.Bool
+	loggerPtr        atomic.Pointer[Logger]
 )
 
-type Lifetime string
+func SetGoHasMovingGC() {
+	goHasMovingGC.Store(true)
+}
+
+func EnableStackTrace() {
+	enableStackTrace.Store(true)
+}
+
+func SetLogger(l Logger) {
+	if l != nil {
+		loggerPtr.Store(&l)
+	}
+}
+
+func logger() Logger {
+	return *loggerPtr.Load()
+}
 
 // Container keeps services constructors and lifetime scopes.
 type Container interface {
@@ -24,6 +87,10 @@ type Container interface {
 	// for Transient and PerContext constructor should be of type func(context.Context, T1, T2, ...),
 	// where T is exact type of service.
 	Add(lifetime Lifetime, constructor any) Container
+	// Decorate constructor of service.
+	Decorate(lifetime Lifetime, constructor any) Container
+	// Replaces constructor of service with same lifetime as registered before.
+	Replace(constructor any) Container
 	// Returns ServiceLocator or error.
 	ServiceLocator() (sl ServiceLocator, err error)
 }
@@ -63,10 +130,33 @@ func MustGet[T any](ctx context.Context, sl ServiceLocator) T {
 	return s
 }
 
+// Your HTTP middleware function decorator.
+// Registers an error if no constructor was found with ServiceLocator
+// which should be checked with ServiceLocator.Err().
+func DecorateMiddleware[T any](sl ServiceLocator, fn func(T) func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	serviceType := reflect.TypeOf(new(T))
+	serviceName := serviceType.Elem().String()
+
+	sl.EnsureAvailable(serviceName)
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+
+			s, err := sl.Get(ctx, serviceName)
+			if err != nil {
+				panic(err)
+			}
+
+			fn(s.(T))(next).ServeHTTP(w, r)
+		})
+	}
+}
+
 // Your HTTP handler function decorator.
 // Registers an error if no constructor was found with ServiceLocator
 // which should be checked with ServiceLocator.Err().
-func DecorateHandler[T any](sl ServiceLocator, fn func(T) http.Handler) http.Handler {
+func DecorateHandler[T any, H http.Handler](sl ServiceLocator, fn func(T) H) http.HandlerFunc {
 	serviceType := reflect.TypeOf(new(T))
 	serviceName := serviceType.Elem().String()
 
@@ -85,7 +175,7 @@ func DecorateHandler[T any](sl ServiceLocator, fn func(T) http.Handler) http.Han
 }
 
 // Lazy initialized service.
-// Will panic if error occured during initialization.
+// Will panic if error occurred during initialization.
 type Lazy[T any] func(context.Context) T
 
 // Returns lazy initialization of service registered in ServiceLocator.

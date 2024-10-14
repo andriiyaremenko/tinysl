@@ -3,93 +3,150 @@ package tinysl
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/signal"
 	"reflect"
+	"runtime/debug"
 	"sync"
+	"sync/atomic"
+	"syscall"
 )
 
-var _ ServiceLocator = new(locator)
+type locatorRecord struct {
+	dependencies []*locatorRecord
+	record
+}
 
-func newLocator(constructors map[string]record) ServiceLocator {
+func newLocator(ctx context.Context, constructorsByType map[string]*locatorRecord) ServiceLocator {
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+	singletonsCleanupCh := make(chan cleanupNodeUpdate)
+	var perContextCleanupChs [9]chan cleanupRecord // (number - 1) of select cases
+	var wg sync.WaitGroup
+
+	singletons := make([]*locatorRecord, 0)
+	perContexts := make([]*locatorRecord, 0)
+
+	perCtxIDs := make([]int, 0)
+	for _, rec := range constructorsByType {
+		switch rec.lifetime {
+		case Singleton:
+			singletons = append(singletons, rec)
+		case PerContext:
+			perCtxIDs = append(perCtxIDs, rec.id)
+			perContexts = append(perContexts, rec)
+		}
+	}
+	go singletonCleanupWorker(ctx, cancel, buildCleanupNodes(singletons), singletonsCleanupCh, &wg)
+
+	cleanupNodeBuilder := func() cleanupNode {
+		return buildCleanupNodes(perContexts)
+	}
+
+	wg.Add(9)
+	for i := range 9 {
+		perContextCleanupChs[i] = make(chan cleanupRecord, 2) // (number - 1) of select cases
+		go perContextCleanupWorker(ctx, &wg, perContextCleanupChs[i], cleanupNodeBuilder)
+	}
+
+	constructorsByID := make(map[int]*locatorRecord, len(constructorsByType))
+	for _, rec := range constructorsByType {
+		constructorsByID[rec.id] = rec
+	}
+
 	return &locator{
-		constructors: constructors,
-		singletons:   newInstances(),
-		perContext:   newContextInstances(),
-		sMu:          make(map[string]*sync.Mutex),
-		pcMu:         make(map[string]*sync.Mutex),
+		constructorsByType:  constructorsByType,
+		constructorsById:    constructorsByID,
+		perContext:          newContextInstances(perCtxIDs),
+		singletonsCleanupCh: singletonsCleanupCh,
+		sendPerContextCleanupUpdates: func(partIndex int, rec cleanupRecord) {
+			perContextCleanupChs[partIndex] <- rec
+		},
 	}
 }
 
 type locator struct {
-	errRMu sync.RWMutex
-	sMuMu  sync.Mutex
-	pcMuMu sync.Mutex
-	sMu    map[string]*sync.Mutex
-	pcMu   map[string]*sync.Mutex
-
-	singletons   *instances
-	perContext   *contextInstances
-	constructors map[string]record
-
-	err error
+	err                          atomic.Pointer[error]
+	perContext                   *contextInstances
+	constructorsByType           map[string]*locatorRecord
+	constructorsById             map[int]*locatorRecord
+	singletonsCleanupCh          chan<- cleanupNodeUpdate
+	sendPerContextCleanupUpdates func(int, cleanupRecord)
+	singletons                   sync.Map
 }
 
 func (l *locator) EnsureAvailable(serviceName string) {
-	for key := range l.constructors {
+	for key := range l.constructorsByType {
 		if key == serviceName {
 			return
 		}
 	}
 
-	l.errRMu.Lock()
-	l.err = NewConstructorNotFoundError(serviceName)
-	l.errRMu.Unlock()
+	err := newConstructorNotFoundError(serviceName)
+	l.err.Store(&err)
 }
 
 func (l *locator) Err() error {
-	l.errRMu.RLock()
-	defer l.errRMu.RUnlock()
-
-	return l.err
+	if err := l.err.Load(); err != nil {
+		return *err
+	}
+	return nil
 }
 
-func (l *locator) Get(ctx context.Context, serviceName string) (any, error) {
-	record, ok := l.constructors[serviceName]
+func (l *locator) Get(ctx context.Context, serviceName string) (service any, err error) {
+	record, ok := l.constructorsByType[serviceName]
 
 	if !ok {
-		return nil, NewConstructorNotFoundError(serviceName)
+		return nil, newConstructorNotFoundError(serviceName)
 	}
 
+	defer func() {
+		if rp := recover(); rp != nil {
+			err = newServiceBuilderError(
+				newConstructorError(newRecoveredError(rp, debug.Stack())),
+				record.lifetime,
+				record.typeName,
+			)
+		}
+	}()
+
+	return l.get(ctx, record)
+}
+
+func (l *locator) get(ctx context.Context, record *locatorRecord) (any, error) {
 	switch record.lifetime {
 	case Singleton:
-		return l.getSingleton(ctx, record, serviceName)
+		return l.getSingleton(ctx, record)
 	case PerContext:
-		return l.getPerContext(ctx, record, serviceName)
+		return l.getPerContext(ctx, record)
 	case Transient:
-		return l.get(ctx, record)
+		s, _, err := l.build(ctx, record)
+		return s, err
 	default:
-		panic(fmt.Errorf(
+		return nil, fmt.Errorf(
 			"broken record %s: %w",
 			record.typeName,
-			LifetimeUnsupportedError(record.lifetime)),
-		)
+			LifetimeUnsupportedError(record.lifetime.String()))
 	}
 }
 
-func (l *locator) get(ctx context.Context, record record) (any, error) {
+func (l *locator) build(ctx context.Context, record *locatorRecord) (any, Cleanup, error) {
 	constructor := record.constructor
 	fn := reflect.ValueOf(constructor)
-	args := make([]reflect.Value, 0, 1)
+	args := reflectValuesPool.Get().([]reflect.Value)
+	defer func() {
+		args = args[:0]
+		reflectValuesPool.Put(args)
+	}()
 
 	for i, dep := range record.dependencies {
-		if i == 0 && dep == contextDepName {
+		if i == 0 && dep.id == 0 {
 			args = append(args, reflect.ValueOf(ctx))
 			continue
 		}
 
-		service, err := l.Get(ctx, dep)
-
+		service, err := l.get(ctx, dep)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		args = append(args, reflect.ValueOf(service))
@@ -97,104 +154,161 @@ func (l *locator) get(ctx context.Context, record record) (any, error) {
 
 	values := fn.Call(args)
 
-	if len(values) != 2 {
-		return nil, NewServiceBuilderError(
-			NewConstructorError(NewUnexpectedResultError(values)),
+	if record.constructorType == onlyService && len(values) != 1 ||
+		record.constructorType == withError && len(values) != 2 ||
+		record.constructorType == withErrorAndCleanUp && len(values) != 3 {
+		return nil, nil, newServiceBuilderError(
+			newConstructorError(newUnexpectedResultError(values)),
 			record.lifetime,
 			record.typeName,
 		)
 	}
 
-	serviceV, errV := values[0], values[1]
-	if err, ok := (errV.Interface()).(error); ok && err != nil {
-		return nil, NewServiceBuilderError(
-			NewConstructorError(err),
+	switch record.constructorType {
+	case onlyService:
+		service := values[0].Interface()
+		return service, func() {}, nil
+	case withError:
+		serviceV, errV := values[0], values[1]
+		if err, ok := (errV.Interface()).(error); ok && err != nil {
+			return nil, nil, newServiceBuilderError(
+				newConstructorError(err),
+				record.lifetime,
+				record.typeName,
+			)
+		}
+
+		service := serviceV.Interface()
+
+		return service, func() {}, nil
+	case withErrorAndCleanUp:
+		serviceV, cleanUpV, errV := values[0], values[1], values[2]
+		if err, ok := (errV.Interface()).(error); ok && err != nil {
+			return nil, nil, newServiceBuilderError(
+				newConstructorError(err),
+				record.lifetime,
+				record.typeName,
+			)
+		}
+
+		service := serviceV.Interface()
+		cleanUp := cleanUpV.Interface()
+
+		return service, cleanUp.(func()), nil
+	default:
+		return nil, nil, newServiceBuilderError(
+			newConstructorUnsupportedError(
+				fn.Type(),
+				record.lifetime,
+			),
 			record.lifetime,
 			record.typeName,
 		)
 	}
-
-	service := serviceV.Interface()
-
-	return service, nil
 }
 
-func (l *locator) getSingleton(ctx context.Context, record record, serviceName string) (any, error) {
-	l.sMuMu.Lock()
+func (l *locator) getSingleton(ctx context.Context, record *locatorRecord) (any, error) {
+	scopeV, _ := l.singletons.LoadOrStore(record.id, &serviceScope{})
+	scope := scopeV.(*serviceScope)
 
-	if _, ok := l.sMu[serviceName]; !ok {
-		l.sMu[serviceName] = new(sync.Mutex)
+	scope.lock()
+	defer scope.unlock()
+
+	if !scope.empty() {
+		return *scope.value, nil
 	}
 
-	mu := l.sMu[serviceName]
-
-	l.sMuMu.Unlock()
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	service, ok := l.singletons.get(serviceName)
-	if ok {
-		return service, nil
-	}
-
-	service, err := l.get(ctx, record)
+	service, cleanUp, err := l.build(ctx, record)
 	if err != nil {
 		return nil, err
 	}
 
-	l.singletons.set(serviceName, service)
+	scope.value = &service
 
-	return service, nil
-}
-
-func (l *locator) getPerContext(ctx context.Context, record record, serviceName string) (any, error) {
-	if ctx == nil {
-		return nil, NewServiceBuilderError(ErrNilContext, record.lifetime, serviceName)
-	}
-
-	if err := ctx.Err(); err != nil {
-		return nil, NewServiceBuilderError(err, record.lifetime, serviceName)
-	}
-
-	l.pcMuMu.Lock()
-	perContextKey := getPerContextKey(ctx, "")
-
-	if _, ok := l.pcMu[perContextKey]; !ok {
+	if record.constructorType == withErrorAndCleanUp {
 		go func() {
-			<-ctx.Done()
-			l.pcMuMu.Lock()
-
-			delete(l.pcMu, perContextKey)
-			l.perContext.delete(ctx)
-
-			l.pcMuMu.Unlock()
+			l.singletonsCleanupCh <- cleanupNodeUpdate{
+				id: record.id,
+				fn: func() {
+					cleanUp()
+					l.singletons.Delete(record.id)
+				},
+			}
 		}()
 	}
 
-	perContextServiceKey := getPerContextKey(ctx, serviceName)
-	if _, ok := l.pcMu[perContextServiceKey]; !ok {
-		l.pcMu[perContextServiceKey] = new(sync.Mutex)
+	return service, nil
+}
+
+func (l *locator) getPerContext(ctx context.Context, record *locatorRecord) (any, error) {
+	if ctx == nil {
+		return nil, newServiceBuilderError(ErrNilContext, record.lifetime, record.typeName)
 	}
 
-	mu := l.pcMu[perContextServiceKey]
-
-	l.pcMuMu.Unlock()
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	service, ok := l.perContext.get(ctx, serviceName)
-	if ok {
-		return service, nil
+	if err := ctx.Err(); err != nil {
+		return nil, newServiceBuilderError(err, record.lifetime, record.typeName)
 	}
 
-	service, err := l.get(ctx, record)
+	ctxKey := getCtxScopeKey(ctx)
+	scope, partIndex, ctxCleanUp, ok := l.perContext.get(ctxKey, record.id)
+
+	scope.lock()
+	defer scope.unlock()
+
+	if !scope.empty() {
+		return *scope.value, nil
+	}
+
+	service, cleanUp, err := l.build(ctx, record)
 	if err != nil {
 		return nil, err
 	}
 
-	l.perContext.set(ctx, serviceName, service)
+	scope.value = &service
+
+	switch {
+	case !ok && record.constructorType == withErrorAndCleanUp:
+		l.sendPerContextCleanupUpdates(
+			partIndex,
+			cleanupRecord{
+				ctx: ctx,
+				cleanupNodeUpdate: cleanupNodeUpdate{
+					id: record.id,
+					fn: cleanUp,
+				},
+			},
+		)
+		l.sendPerContextCleanupUpdates(
+			partIndex,
+			cleanupRecord{
+				ctx: ctx,
+				cleanupNodeUpdate: cleanupNodeUpdate{
+					fn: ctxCleanUp,
+				},
+			},
+		)
+	case !ok:
+		l.sendPerContextCleanupUpdates(
+			partIndex,
+			cleanupRecord{
+				ctx: ctx,
+				cleanupNodeUpdate: cleanupNodeUpdate{
+					fn: ctxCleanUp,
+				},
+			},
+		)
+	case record.constructorType == withErrorAndCleanUp:
+		l.sendPerContextCleanupUpdates(
+			partIndex,
+			cleanupRecord{
+				ctx: ctx,
+				cleanupNodeUpdate: cleanupNodeUpdate{
+					id: record.id,
+					fn: cleanUp,
+				},
+			},
+		)
+	}
 
 	return service, nil
 }

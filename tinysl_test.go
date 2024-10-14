@@ -16,7 +16,7 @@ var _ = Describe("Functions", func() {
 	Context("MustGet", func() {
 		It("should work", func() {
 			sl, err := tinysl.
-				Add(tinysl.Transient, nameServiceConstructor).
+				Add(tinysl.PerContext, nameServiceConstructor).
 				Add(tinysl.PerContext, tinysl.I[HelloService, ServiceWithPublicFields]).
 				ServiceLocator()
 
@@ -33,7 +33,7 @@ var _ = Describe("Functions", func() {
 
 		It("should panic if constructor not found", func() {
 			sl, err := tinysl.
-				Add(tinysl.Transient, nameServiceConstructor).
+				Add(tinysl.PerContext, nameServiceConstructor).
 				Add(tinysl.PerContext, tinysl.I[HelloService, ServiceWithPublicFields]).
 				ServiceLocator()
 
@@ -51,7 +51,7 @@ var _ = Describe("Functions", func() {
 	Context("Prepare", func() {
 		It("should work", func() {
 			sl, err := tinysl.
-				Add(tinysl.Transient, nameServiceConstructor).
+				Add(tinysl.PerContext, nameServiceConstructor).
 				Add(tinysl.PerContext, tinysl.I[HelloService, ServiceWithPublicFields]).
 				ServiceLocator()
 
@@ -71,7 +71,7 @@ var _ = Describe("Functions", func() {
 
 		It("should report error", func() {
 			sl, err := tinysl.
-				Add(tinysl.Transient, nameServiceConstructor).
+				Add(tinysl.PerContext, nameServiceConstructor).
 				Add(tinysl.PerContext, tinysl.I[HelloService, ServiceWithPublicFields]).
 				ServiceLocator()
 
@@ -92,27 +92,42 @@ var _ = Describe("Functions", func() {
 	Context("Decorate", func() {
 		It("should work", func() {
 			sl, err := tinysl.
-				Add(tinysl.Transient, nameServiceConstructor).
+				Add(tinysl.PerContext, nameServiceConstructor).
 				Add(tinysl.PerContext, tinysl.I[HelloService, ServiceWithPublicFields]).
 				ServiceLocator()
 
 			Expect(err).ShouldNot(HaveOccurred())
 
 			ctx := context.TODO()
-			ctx, cancel := context.WithCancel(ctx)
+			_, cancel := context.WithCancel(ctx)
 
 			defer cancel()
 
-			handler := tinysl.DecorateHandler(
-				sl, func(h HelloService) http.Handler {
+			type key string
+			var nameKey key
+
+			middleware := func(s NameService) func(http.Handler) http.Handler {
+				return func(next http.Handler) http.Handler {
 					return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-						w.Write([]byte(h.Hello()))
+						ctx := context.WithValue(r.Context(), nameKey, s.Name())
+						next.ServeHTTP(w, r.WithContext(ctx))
+					})
+				}
+			}
+
+			handler := tinysl.DecorateHandler(
+				sl, func(h HelloService) http.HandlerFunc {
+					return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						Expect(r.Context().Value(nameKey)).NotTo(BeNil())
+						Expect(r.Context().Value(nameKey)).To(Equal("Bob"))
+
+						_, _ = w.Write([]byte(h.Hello()))
 					})
 				})
 
 			Expect(sl.Err()).ShouldNot(HaveOccurred())
 
-			server := httptest.NewServer(handler)
+			server := httptest.NewServer(tinysl.DecorateMiddleware(sl, middleware)(handler))
 			resp, err := http.Get(server.URL)
 
 			Expect(err).ShouldNot(HaveOccurred())
@@ -132,14 +147,14 @@ var _ = Describe("Functions", func() {
 
 		It("should report error", func() {
 			sl, err := tinysl.
-				Add(tinysl.Transient, nameServiceConstructor).
+				Add(tinysl.PerContext, nameServiceConstructor).
 				Add(tinysl.PerContext, tinysl.I[HelloService, ServiceWithPublicFields]).
 				ServiceLocator()
 
 			Expect(err).ShouldNot(HaveOccurred())
 
 			ctx := context.TODO()
-			ctx, cancel := context.WithCancel(ctx)
+			_, cancel := context.WithCancel(ctx)
 
 			defer cancel()
 
