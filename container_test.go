@@ -32,7 +32,9 @@ var _ = Describe("Container", func() {
 		})
 
 		It("should register PerContext", func() {
-			_, err := tinysl.Add(tinysl.PerContext, nameProviderConstructor).ServiceLocator()
+			_, err := tinysl.
+				New(tinysl.SilenceUseSingletonWarnings).
+				Add(tinysl.PerContext, nameProviderConstructor).ServiceLocator()
 			Expect(err).ShouldNot(HaveOccurred())
 		})
 
@@ -45,12 +47,15 @@ var _ = Describe("Container", func() {
 		})
 
 		It("should register Transient", func() {
-			_, err := tinysl.Add(tinysl.Transient, nameProviderConstructor).ServiceLocator()
+			_, err := tinysl.
+				New(tinysl.SilenceUseSingletonWarnings).
+				Add(tinysl.Transient, nameProviderConstructor).ServiceLocator()
 			Expect(err).ShouldNot(HaveOccurred())
 		})
 
 		It("should register Transient constructor dependant on context.Context", func() {
 			_, err := tinysl.
+				New(tinysl.SilenceUseSingletonWarnings).
 				Add(tinysl.Transient, tableTimerConstructor).
 				Add(tinysl.PerContext, nameServiceConstructor).
 				ServiceLocator()
@@ -86,6 +91,7 @@ var _ = Describe("Container", func() {
 
 		It("should allow to use same implementation for different types", func() {
 			_, err := tinysl.
+				New(tinysl.SilenceUseSingletonWarnings).
 				Add(tinysl.Transient, nameProviderConstructor).
 				Add(tinysl.PerContext, nameServiceConstructor).
 				ServiceLocator()
@@ -106,7 +112,7 @@ var _ = Describe("Container", func() {
 		})
 
 		It("should be tread-safe", func() {
-			sl := tinysl.New()
+			sl := tinysl.New(tinysl.SilenceUseSingletonWarnings)
 
 			var wg sync.WaitGroup
 
@@ -296,12 +302,12 @@ var _ = Describe("Container", func() {
 				),
 			)
 			_, err := tinysl.
-				Add(tinysl.PerContext, tableTimerConstructor).
+				Add(tinysl.PerContext, heroConstructor).
 				Add(tinysl.Singleton, nameServiceConstructor).
 				ServiceLocator()
 
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(buf.String()).To(Equal("level=INFO msg=\"ERROR your dependency hierarchy can be optimised error=\\\"PerContext *tinysl_test.TableTimer should be a Singleton\\\"\"\n"))
+			Expect(buf.String()).To(Equal("level=INFO msg=\"ERROR your dependency hierarchy can be optimised error=\\\"PerContext *tinysl_test.Hero should be a Singleton\\\"\"\n"))
 			slog.SetDefault(slog.Default())
 		})
 
