@@ -277,7 +277,7 @@ func (c *container) ServiceLocator() (ServiceLocator, error) {
 
 func (c *container) canResolveDependencies(record containerRecord, role string, dependentServiceNames ...string) (bool, error) {
 	dependentServiceNames = append(dependentServiceNames, record.typeName)
-	shouldBeSingleton := record.lifetime < Singleton && record.dependsOnContext
+	shouldBeSingleton := record.lifetime < Singleton && !record.dependsOnContext
 
 	for _, dependency := range record.dependencies {
 		if dependency == contextDepName {

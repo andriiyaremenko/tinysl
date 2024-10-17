@@ -30,6 +30,7 @@ var _ = Describe("ServiceLocator", func() {
 
 	It("should return new instance every time for Transient", func() {
 		sl, err := tinysl.
+			New(tinysl.SilenceUseSingletonWarnings).
 			Add(tinysl.Transient, nameServiceConstructor).
 			Add(tinysl.Transient, heroConstructor).
 			ServiceLocator()
@@ -48,6 +49,7 @@ var _ = Describe("ServiceLocator", func() {
 
 	It("should return same instance for same context for PerContext", func() {
 		sl, err := tinysl.
+			New(tinysl.SilenceUseSingletonWarnings).
 			Add(tinysl.PerContext, nameServiceConstructor).
 			Add(tinysl.PerContext, heroConstructor).
 			ServiceLocator()
@@ -68,6 +70,7 @@ var _ = Describe("ServiceLocator", func() {
 
 	It("should return new instance for different context for PerContext", func() {
 		sl, err := tinysl.
+			New(tinysl.SilenceUseSingletonWarnings).
 			Add(tinysl.PerContext, nameServiceConstructor).
 			Add(tinysl.PerContext, heroConstructor).
 			ServiceLocator()
@@ -93,6 +96,7 @@ var _ = Describe("ServiceLocator", func() {
 
 	It("should return error for cancelled context for PerContext", func() {
 		sl, err := tinysl.
+			New(tinysl.SilenceUseSingletonWarnings).
 			Add(tinysl.PerContext, nameServiceConstructor).
 			Add(tinysl.PerContext, heroConstructor).
 			ServiceLocator()
@@ -112,6 +116,7 @@ var _ = Describe("ServiceLocator", func() {
 
 	It("should return error for nil context for PerContext", func() {
 		sl, err := tinysl.
+			New(tinysl.SilenceUseSingletonWarnings).
 			Add(tinysl.PerContext, nameServiceConstructor).
 			Add(tinysl.PerContext, heroConstructor).
 			ServiceLocator()
@@ -148,6 +153,7 @@ var _ = Describe("ServiceLocator", func() {
 
 	It("should manage constructor dependencies", func() {
 		sl, err := tinysl.
+			New(tinysl.SilenceUseSingletonWarnings).
 			Add(tinysl.Transient, nameServiceConstructor).
 			Add(tinysl.Transient, tableTimerConstructor).
 			Add(tinysl.Transient, heroConstructor).
@@ -174,6 +180,7 @@ var _ = Describe("ServiceLocator", func() {
 
 	It("should decorate services", func() {
 		sl, err := tinysl.
+			New(tinysl.SilenceUseSingletonWarnings).
 			Add(tinysl.PerContext, nameServiceConstructor).
 			Decorate(tinysl.PerContext, nameServiceDecoratorConstructor("decorated")).
 			Decorate(tinysl.PerContext, nameServiceDecoratorConstructor("twice")).
@@ -189,6 +196,7 @@ var _ = Describe("ServiceLocator", func() {
 
 	It("should return error on missing constructor", func() {
 		sl, err := tinysl.
+			New(tinysl.SilenceUseSingletonWarnings).
 			Add(tinysl.Transient, nameServiceConstructor).
 			Add(tinysl.Transient, tableTimerConstructor).
 			Add(tinysl.Transient, heroConstructor).
@@ -273,6 +281,7 @@ var _ = Describe("ServiceLocator", func() {
 	It("should be tread-safe for PerContext", func() {
 		for i := 5_000; i > 0; i-- {
 			sl, err := tinysl.
+				New(tinysl.SilenceUseSingletonWarnings).
 				Add(tinysl.PerContext, nameServiceConstructor).
 				Add(tinysl.PerContext, heroConstructor).
 				ServiceLocator()
@@ -341,6 +350,7 @@ var _ = Describe("ServiceLocator", func() {
 	It("should not leak goroutines", func() {
 		for i := 10; i > 0; i-- {
 			sl, err := tinysl.
+				New(tinysl.SilenceUseSingletonWarnings).
 				Add(tinysl.PerContext, nameServiceConstructor).
 				Add(tinysl.PerContext, heroConstructor).
 				ServiceLocator()
@@ -415,6 +425,7 @@ var _ = Describe("ServiceLocator", func() {
 			return nil, errors.New("some unfortunate error")
 		}
 		sl, err := tinysl.
+			New(tinysl.SilenceUseSingletonWarnings).
 			Add(tinysl.PerContext, errConstructor).
 			Add(tinysl.PerContext, heroConstructor).
 			ServiceLocator()
@@ -434,6 +445,7 @@ var _ = Describe("ServiceLocator", func() {
 
 	It("should work with T", func() {
 		sl, err := tinysl.
+			New(tinysl.SilenceUseSingletonWarnings).
 			Add(tinysl.PerContext, nameServiceConstructor).
 			Add(tinysl.PerContext, tinysl.T[ServiceWithPublicFields]).
 			ServiceLocator()
@@ -450,6 +462,7 @@ var _ = Describe("ServiceLocator", func() {
 
 	It("should work with P", func() {
 		sl, err := tinysl.
+			New(tinysl.SilenceUseSingletonWarnings).
 			Add(tinysl.PerContext, nameServiceConstructor).
 			Add(tinysl.PerContext, tinysl.P[ServiceWithPublicFields]).
 			ServiceLocator()
@@ -466,6 +479,7 @@ var _ = Describe("ServiceLocator", func() {
 
 	It("should work with I", func() {
 		sl, err := tinysl.
+			New(tinysl.SilenceUseSingletonWarnings).
 			Add(tinysl.PerContext, nameServiceConstructor).
 			Add(tinysl.PerContext, tinysl.I[HelloService, ServiceWithPublicFields]).
 			ServiceLocator()
@@ -483,6 +497,7 @@ var _ = Describe("ServiceLocator", func() {
 	It("should use cleanup function for PerContext", func() {
 		cleaned := make(chan struct{})
 		sl, err := tinysl.
+			New(tinysl.SilenceUseSingletonWarnings).
 			Add(tinysl.PerContext, nameServiceConstructor).
 			Add(tinysl.PerContext, heroConstructorWithCleanup(func() { close(cleaned) })).
 			ServiceLocator()
@@ -521,6 +536,7 @@ var _ = Describe("ServiceLocator", func() {
 
 	It("should handle panic", func() {
 		sl, err := tinysl.
+			New(tinysl.SilenceUseSingletonWarnings).
 			Add(tinysl.PerContext, nameServiceConstructor).
 			Add(tinysl.PerContext, scaredHeroConstructorWithCleanup).
 			ServiceLocator()
@@ -538,6 +554,7 @@ var _ = Describe("ServiceLocator", func() {
 	It("should handle panic during cleanup function for PerContext", func() {
 		cleaned := make(chan struct{})
 		sl, err := tinysl.
+			New(tinysl.SilenceUseSingletonWarnings).
 			Add(tinysl.PerContext, nameServiceConstructor).
 			Add(tinysl.PerContext, heroConstructorWithCleanup(func() { close(cleaned); panic("oops") })).
 			ServiceLocator()
@@ -577,6 +594,7 @@ var _ = Describe("ServiceLocator", func() {
 		chFirst := make(chan time.Time)
 		chLast := make(chan time.Time)
 		sl, err := tinysl.
+			New(tinysl.SilenceUseSingletonWarnings).
 			Add(tinysl.PerContext, nameServiceConstructorWithCleanup(func() { chLast <- time.Now() })).
 			Add(tinysl.PerContext, heroConstructorWithCleanup(func() { chFirst <- time.Now() })).
 			ServiceLocator()
@@ -633,6 +651,7 @@ var _ = Describe("ServiceLocator", func() {
 		withTimeTracker.Store(ptrToTimeTracker(func(time.Time) {}))
 
 		sl, err := tinysl.
+			New(tinysl.SilenceUseSingletonWarnings).
 			Add(tinysl.PerContext, nameServiceConstructor).
 			Add(tinysl.PerContext, heroConstructorWithCleanup(func() { (*withTimeTracker.Load())(time.Now()) })).
 			ServiceLocator()
