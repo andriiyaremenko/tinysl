@@ -22,7 +22,7 @@ jobs:
       run: go build -v ./...
 
     - name: Test
-      run: go run github.com/onsi/ginkgo/v2/ginkgo -r --race --trace --fail-on-pending --keep-going -vv
+      run: go run github.com/onsi/ginkgo/v2/ginkgo -r --race --trace --fail-on-pending --keep-going -vv --cover
 
     - name: Bench
       run: go test -benchmem -bench=. ./... -benchtime=10s
