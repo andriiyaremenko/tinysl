@@ -9,12 +9,6 @@ import (
 	"time"
 )
 
-var reflectValuesPool = sync.Pool{
-	New: func() any {
-		return make([]reflect.Value, 0, 1)
-	},
-}
-
 var _ ServiceLocator = new(locator)
 
 type cleanupRecord struct {
@@ -87,11 +81,9 @@ func (fn singleCleanupFn) clean() {
 }
 
 func (fn singleCleanupFn) zeroOut() {
-	fn = func() {}
 }
 
 func (fn singleCleanupFn) updateCleanupNode(update cleanupNodeUpdate) {
-	fn = singleCleanupFn(update.fn)
 }
 
 type cleanupNodeRecord struct {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
 	"time"
 )
 
@@ -148,11 +147,4 @@ func heroConstructorWithCleanup(cleanup func()) func(nameService NameService) (*
 
 func scaredHeroConstructorWithCleanup(nameService NameService) (*Hero, error) {
 	panic(fmt.Errorf("scared"))
-}
-
-func removeTime(_ []string, a slog.Attr) slog.Attr {
-	if a.Key == slog.TimeKey {
-		return slog.Attr{}
-	}
-	return a
 }

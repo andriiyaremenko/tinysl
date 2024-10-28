@@ -645,7 +645,6 @@ var _ = Describe("ServiceLocator", func() {
 	})
 
 	It("should shuffle contexts for cleanup if one takes too long", func() {
-		type timeTracker atomic.Pointer[func(time.Time)]
 		withTimeTracker := atomic.Pointer[func(time.Time)]{}
 		ptrToTimeTracker := func(fn func(time.Time)) *func(time.Time) { return &fn }
 		withTimeTracker.Store(ptrToTimeTracker(func(time.Time) {}))

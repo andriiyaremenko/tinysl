@@ -69,26 +69,31 @@ func (cs *serviceScope) unlock() {
 }
 
 func newContextInstances(keys []int) *contextInstances {
+	newServiceScopes := func() any {
+		services := make(map[int]*serviceScope)
+
+		if len(services) == 0 {
+			for _, key := range keys {
+				services[key] = &serviceScope{}
+			}
+		}
+
+		return services
+	}
+	serviceScopesPool := [9]*sync.Pool{}
+	for i := range serviceScopesPool {
+		func(i int) {
+			serviceScopesPool[i] = &sync.Pool{New: newServiceScopes}
+		}(i)
+	}
 	return &contextInstances{
-		keys: keys,
-		serviceScopesPool: sync.Pool{
-			New: func() any {
-				services := make(map[int]*serviceScope)
-
-				if len(services) == 0 {
-					for _, key := range keys {
-						services[key] = &serviceScope{}
-					}
-				}
-
-				return services
-			},
-		},
+		keys:              keys,
+		serviceScopesPool: serviceScopesPool,
 	}
 }
 
 type contextInstances struct {
-	serviceScopesPool sync.Pool
+	serviceScopesPool [9]*sync.Pool
 	partitions        [9]sync.Map
 	keys              []int
 }
@@ -124,7 +129,7 @@ func (ci *contextInstances) get(ctxKey *ctxScopeKey, key int) (*serviceScope, in
 		}
 	}
 
-	servicesVal, ok := ci.partitions[partIndex].LoadOrStore(ctxKV, ci.serviceScopesPool.Get())
+	servicesVal, ok := ci.partitions[partIndex].LoadOrStore(ctxKV, ci.serviceScopesPool[partIndex].Get())
 	services := servicesVal.(map[int]*serviceScope)
 
 	if !ok {
@@ -132,9 +137,11 @@ func (ci *contextInstances) get(ctxKey *ctxScopeKey, key int) (*serviceScope, in
 		return services[key], partIndex, func() {
 			ci.partitions[partIndex].Delete(ctxKV)
 			for key := range services {
-				services[key] = &serviceScope{}
+				services[key].lock()
+				services[key].value = nil
+				services[key].unlock()
 			}
-			ci.serviceScopesPool.Put(services)
+			ci.serviceScopesPool[partIndex].Put(services)
 			cleanCtxKey(ctxKey)
 		}, false
 	} else {
