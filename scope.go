@@ -69,32 +69,25 @@ func (cs *serviceScope) unlock() {
 }
 
 func newContextInstances(keys []int) *contextInstances {
-	newServiceScopes := func() any {
-		services := make(map[int]*serviceScope)
-
-		if len(services) == 0 {
-			for _, key := range keys {
-				services[key] = &serviceScope{}
-			}
-		}
-
-		return services
-	}
-	serviceScopesPool := [9]*sync.Pool{}
-	for i := range serviceScopesPool {
-		func(i int) {
-			serviceScopesPool[i] = &sync.Pool{New: newServiceScopes}
-		}(i)
-	}
 	return &contextInstances{
-		keys:              keys,
-		serviceScopesPool: serviceScopesPool,
+		keys: keys,
+		serviceScopesPool: sync.Pool{
+			New: func() any {
+				services := make(map[int]*serviceScope)
+
+				for _, key := range keys {
+					services[key] = &serviceScope{}
+				}
+
+				return &services
+			},
+		},
 	}
 }
 
 type contextInstances struct {
-	serviceScopesPool [9]*sync.Pool
-	partitions        [9]sync.Map
+	serviceScopesPool sync.Pool
+	partitions        [18]sync.Map
 	keys              []int
 }
 
@@ -105,48 +98,87 @@ func (ci *contextInstances) get(ctxKey *ctxScopeKey, key int) (*serviceScope, in
 	var partIndex int
 	if n := i / 3; i == n*3 {
 		if n := i / 9; i == n*9 {
-			partIndex = 8
+			if n := i / 18; i == n*18 {
+				partIndex = 17
+			} else {
+				partIndex = 16
+			}
 		} else if n := i / 6; i == n*6 {
-			partIndex = 7
+			if n := i / 12; i == n*12 {
+				partIndex = 15
+			} else {
+				partIndex = 14
+			}
 		} else {
-			partIndex = 6
+			if n := (i + 1) / 4; i+1 == n*4 {
+				partIndex = 13
+			} else {
+				partIndex = 12
+			}
 		}
 	} else if n := (i + 1) / 3; i+1 == n*3 {
 		if n := (i + 1) / 9; i+1 == n*9 {
-			partIndex = 5
+			if n := (i + 1) / 18; i+1 == n*18 {
+				partIndex = 11
+			} else {
+				partIndex = 10
+			}
 		} else if n := (i + 1) / 6; (i + 1) == n*6 {
-			partIndex = 4
+			if n := (i + 1) / 12; i+1 == n*12 {
+				partIndex = 9
+			} else {
+				partIndex = 8
+			}
 		} else {
-			partIndex = 3
+			if n := i / 4; i == n*4 {
+				partIndex = 7
+			} else {
+				partIndex = 6
+			}
 		}
 	} else {
 		if n := (i + 2) / 9; i+2 == n*9 {
-			partIndex = 2
+			if n := (i + 2) / 18; i+2 == n*18 {
+				partIndex = 5
+			} else {
+				partIndex = 4
+			}
 		} else if n := (i + 2) / 6; (i + 2) == n*6 {
-			partIndex = 1
+			if n := (i + 2) / 12; i+2 == n*12 {
+				partIndex = 3
+			} else {
+				partIndex = 2
+			}
 		} else {
-			partIndex = 0
+			if n := (i + 3) / 4; i+3 == n*4 {
+				partIndex = 1
+			} else {
+				partIndex = 0
+			}
 		}
 	}
 
-	servicesVal, ok := ci.partitions[partIndex].LoadOrStore(ctxKV, ci.serviceScopesPool[partIndex].Get())
-	services := servicesVal.(map[int]*serviceScope)
+	servicesVal, ok := ci.partitions[partIndex].LoadOrStore(ctxKV, ci.serviceScopesPool.Get())
+	service := (*servicesVal.(*map[int]*serviceScope))[key]
 
 	if !ok {
 		ctxKey.pin()
-		return services[key], partIndex, func() {
-			ci.partitions[partIndex].Delete(ctxKV)
-			for key := range services {
-				services[key].lock()
-				services[key].value = nil
-				services[key].unlock()
+		return service, partIndex, func() {
+			if servicesVal, ok := ci.partitions[partIndex].LoadAndDelete(ctxKV); ok {
+				servicesPtr := servicesVal.(*map[int]*serviceScope)
+				services := *servicesPtr
+				for key := range services {
+					services[key].lock()
+					services[key].value = nil
+					services[key].unlock()
+				}
+				ci.serviceScopesPool.Put(servicesPtr)
+				cleanCtxKey(ctxKey)
 			}
-			ci.serviceScopesPool[partIndex].Put(services)
-			cleanCtxKey(ctxKey)
 		}, false
 	} else {
 		cleanCtxKey(ctxKey)
 	}
 
-	return services[key], partIndex, nil, true
+	return service, partIndex, nil, true
 }

@@ -226,7 +226,7 @@ loop:
 			}
 
 			if node.len() == 0 {
-				node = singleCleanupFn(rec.fn)
+				cleanups[pt] = singleCleanupFn(rec.fn)
 			} else {
 				node.updateCleanupNode(rec.cleanupNodeUpdate)
 			}
