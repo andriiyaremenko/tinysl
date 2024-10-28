@@ -12,6 +12,13 @@ import (
 	"syscall"
 )
 
+var reflectValuesPool = sync.Pool{
+	New: func() any {
+		val := make([]reflect.Value, 0, 1)
+		return &val
+	},
+}
+
 type locatorRecord struct {
 	dependencies []*locatorRecord
 	record
@@ -132,10 +139,11 @@ func (l *locator) get(ctx context.Context, record *locatorRecord) (any, error) {
 func (l *locator) build(ctx context.Context, record *locatorRecord) (any, Cleanup, error) {
 	constructor := record.constructor
 	fn := reflect.ValueOf(constructor)
-	args := reflectValuesPool.Get().([]reflect.Value)
+	argsPtr := reflectValuesPool.Get().(*[]reflect.Value)
+	args := *argsPtr
 	defer func() {
 		args = args[:0]
-		reflectValuesPool.Put(args)
+		reflectValuesPool.Put(argsPtr)
 	}()
 
 	for i, dep := range record.dependencies {

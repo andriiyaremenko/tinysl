@@ -128,6 +128,9 @@ var _ = Describe("Functions", func() {
 			Expect(sl.Err()).ShouldNot(HaveOccurred())
 
 			server := httptest.NewServer(tinysl.DecorateMiddleware(sl, middleware)(handler))
+
+			defer server.Close()
+
 			resp, err := http.Get(server.URL)
 
 			Expect(err).ShouldNot(HaveOccurred())
@@ -158,10 +161,9 @@ var _ = Describe("Functions", func() {
 
 			defer cancel()
 
-			_ = tinysl.DecorateHandler(
-				sl, func(h *Hero) http.Handler {
-					return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
-				})
+			s := httptest.NewServer(tinysl.DecorateHandler(sl, func(h *Hero) http.Handler { return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}) }))
+
+			defer s.Close()
 
 			Expect(sl.Err()).Should(HaveOccurred())
 			Expect(sl.Err()).To(BeAssignableToTypeOf(&tinysl.ConstructorNotFoundError{}))
