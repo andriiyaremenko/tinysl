@@ -12,45 +12,27 @@ type cleanupNodeUpdate struct {
 	id int
 }
 
-type cleanupNode interface {
-	len() int
-	clean()
-	zeroOut()
-	updateCleanupNode(int, Cleanup)
-}
-
-type cleanupNodeImpl struct {
+type cleanupNode struct {
 	fn         Cleanup
-	dependants []*cleanupNodeImpl
+	dependants []*cleanupNode
 	id         int
-	cleaned    bool
 }
 
-func (ct *cleanupNodeImpl) clean() {
+func (ct *cleanupNode) clean() {
 	for _, nodes := range ct.dependants {
 		nodes.clean()
 	}
 
-	if !ct.cleaned {
-		ct.fn()
-	}
+	ct.fn()
 
-	ct.cleaned = true
-}
-
-func (ct *cleanupNodeImpl) len() int {
-	return len(ct.dependants)
-}
-
-func (ct *cleanupNodeImpl) zeroOut() {
-	ct.cleaned = false
 	ct.fn = func() {}
-	for _, nodes := range ct.dependants {
-		nodes.zeroOut()
-	}
 }
 
-func (node *cleanupNodeImpl) updateCleanupNode(id int, fn Cleanup) {
+func (ct *cleanupNode) empty() bool {
+	return len(ct.dependants) == 0
+}
+
+func (node *cleanupNode) updateCleanupNode(id int, fn Cleanup) {
 	if node.id == id {
 		node.fn = fn
 		return
@@ -61,29 +43,13 @@ func (node *cleanupNodeImpl) updateCleanupNode(id int, fn Cleanup) {
 	}
 }
 
-type singleCleanupFn func()
-
-func (fn singleCleanupFn) len() int {
-	return 0
-}
-
-func (fn singleCleanupFn) clean() {
-	fn()
-}
-
-func (fn singleCleanupFn) zeroOut() {
-}
-
-func (fn singleCleanupFn) updateCleanupNode(int, Cleanup) {
-}
-
 type cleanupNodeRecord struct {
-	*cleanupNodeImpl
+	*cleanupNode
 	typeName     string
 	dependencies []int
 }
 
-func buildCleanupNodes(records []*locatorRecord) cleanupNode {
+func buildCleanupNodes(records []*locatorRecord) *cleanupNode {
 	hasNoDeps := true
 	for _, rec := range records {
 		if rec.constructorType == withErrorAndCleanUp {
@@ -92,10 +58,10 @@ func buildCleanupNodes(records []*locatorRecord) cleanupNode {
 	}
 
 	if hasNoDeps {
-		return &cleanupNodeImpl{fn: func() {}}
+		return &cleanupNode{fn: func() {}}
 	}
 
-	headNode := &cleanupNodeImpl{fn: func() {}}
+	headNode := &cleanupNode{fn: func() {}}
 
 	nodes := make([]*cleanupNodeRecord, 0)
 	for _, rec := range records {
@@ -111,12 +77,12 @@ func buildCleanupNodes(records []*locatorRecord) cleanupNode {
 	return headNode
 }
 
-func filterOnlyTopNodes(nodes []*cleanupNodeRecord) []*cleanupNodeImpl {
-	result := make([]*cleanupNodeImpl, 0)
+func filterOnlyTopNodes(nodes []*cleanupNodeRecord) []*cleanupNode {
+	result := make([]*cleanupNode, 0)
 
 	for _, n := range nodes {
 		if len(n.dependencies) == 0 {
-			result = append(result, n.cleanupNodeImpl)
+			result = append(result, n.cleanupNode)
 		}
 	}
 
@@ -126,13 +92,13 @@ func filterOnlyTopNodes(nodes []*cleanupNodeRecord) []*cleanupNodeImpl {
 func buildCleanupNodeRecordDependants(node *cleanupNodeRecord, nodes []*cleanupNodeRecord) {
 	for _, n := range nodes {
 		if slices.Contains(n.dependencies, node.id) {
-			node.dependants = append(node.dependants, n.cleanupNodeImpl)
+			node.dependants = append(node.dependants, n.cleanupNode)
 		}
 	}
 }
 
 func buildCleanupNodeRecord(rec *locatorRecord, records []*locatorRecord) *cleanupNodeRecord {
-	node := &cleanupNodeImpl{
+	node := &cleanupNode{
 		fn: func() {},
 		id: rec.id,
 	}
@@ -147,9 +113,9 @@ func buildCleanupNodeRecord(rec *locatorRecord, records []*locatorRecord) *clean
 	}
 
 	nodeRec := &cleanupNodeRecord{
-		typeName:        rec.typeName,
-		dependencies:    deps,
-		cleanupNodeImpl: node,
+		typeName:     rec.typeName,
+		dependencies: deps,
+		cleanupNode:  node,
 	}
 
 	return nodeRec
@@ -157,7 +123,7 @@ func buildCleanupNodeRecord(rec *locatorRecord, records []*locatorRecord) *clean
 
 // worker to handle singletons cleanup before application exit
 func singletonCleanupWorker(
-	ctx context.Context, cancel context.CancelFunc, cleanupSchema cleanupNode,
+	ctx context.Context, cancel context.CancelFunc, cleanupSchema *cleanupNode,
 	singletonsCleanupCh <-chan cleanupNodeUpdate,
 ) {
 	var cleanup Cleanup = func() { cleanupSchema.clean() }

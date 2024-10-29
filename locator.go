@@ -43,7 +43,7 @@ func newLocator(ctx context.Context, constructorsByType map[string]*locatorRecor
 	}
 	go singletonCleanupWorker(ctx, cancel, buildCleanupNodes(singletons), singletonsCleanupCh)
 
-	cleanupNodeBuilder := func() cleanupNode {
+	cleanupNodeBuilder := func() *cleanupNode {
 		return buildCleanupNodes(perContexts)
 	}
 
