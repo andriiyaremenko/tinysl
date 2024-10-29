@@ -68,85 +68,128 @@ func (cs *serviceScope) unlock() {
 	cs.mu.Unlock()
 }
 
-func newContextInstances(keys []int) *contextInstances {
-	newServiceScopes := func() any {
-		services := make(map[int]*serviceScope)
+type contextScope struct {
+	services map[int]*serviceScope
+	cleanup  *cleanupNode
+}
 
-		if len(services) == 0 {
-			for _, key := range keys {
-				services[key] = &serviceScope{}
-			}
-		}
-
-		return services
-	}
-	serviceScopesPool := [9]*sync.Pool{}
-	for i := range serviceScopesPool {
-		func(i int) {
-			serviceScopesPool[i] = &sync.Pool{New: newServiceScopes}
-		}(i)
-	}
+func newContextInstances(keys []int, buildCleanupNode func() *cleanupNode) *contextInstances {
 	return &contextInstances{
-		keys:              keys,
-		serviceScopesPool: serviceScopesPool,
+		keys: keys,
+		serviceScopesPool: sync.Pool{
+			New: func() any {
+				services := make(map[int]*serviceScope)
+
+				for _, key := range keys {
+					services[key] = &serviceScope{}
+				}
+
+				return &contextScope{services: services, cleanup: buildCleanupNode()}
+			},
+		},
 	}
 }
 
 type contextInstances struct {
-	serviceScopesPool [9]*sync.Pool
-	partitions        [9]sync.Map
+	serviceScopesPool sync.Pool
+	partitions        [18]sync.Map
 	keys              []int
 }
 
-func (ci *contextInstances) get(ctxKey *ctxScopeKey, key int) (*serviceScope, int, func(), bool) {
+func (ci *contextInstances) get(ctx context.Context, key int) (*serviceScope, *cleanupNode) {
+	ctxKey := getCtxScopeKey(ctx)
 	ctxKV := ctxKey.key()
 
 	i := ctxKV % mod
 	var partIndex int
 	if n := i / 3; i == n*3 {
 		if n := i / 9; i == n*9 {
-			partIndex = 8
+			if n := i / 18; i == n*18 {
+				partIndex = 17
+			} else {
+				partIndex = 16
+			}
 		} else if n := i / 6; i == n*6 {
-			partIndex = 7
+			if n := i / 12; i == n*12 {
+				partIndex = 15
+			} else {
+				partIndex = 14
+			}
 		} else {
-			partIndex = 6
+			if n := (i + 1) / 4; i+1 == n*4 {
+				partIndex = 13
+			} else {
+				partIndex = 12
+			}
 		}
 	} else if n := (i + 1) / 3; i+1 == n*3 {
 		if n := (i + 1) / 9; i+1 == n*9 {
-			partIndex = 5
+			if n := (i + 1) / 18; i+1 == n*18 {
+				partIndex = 11
+			} else {
+				partIndex = 10
+			}
 		} else if n := (i + 1) / 6; (i + 1) == n*6 {
-			partIndex = 4
+			if n := (i + 1) / 12; i+1 == n*12 {
+				partIndex = 9
+			} else {
+				partIndex = 8
+			}
 		} else {
-			partIndex = 3
+			if n := i / 4; i == n*4 {
+				partIndex = 7
+			} else {
+				partIndex = 6
+			}
 		}
 	} else {
 		if n := (i + 2) / 9; i+2 == n*9 {
-			partIndex = 2
+			if n := (i + 2) / 18; i+2 == n*18 {
+				partIndex = 5
+			} else {
+				partIndex = 4
+			}
 		} else if n := (i + 2) / 6; (i + 2) == n*6 {
-			partIndex = 1
+			if n := (i + 2) / 12; i+2 == n*12 {
+				partIndex = 3
+			} else {
+				partIndex = 2
+			}
 		} else {
-			partIndex = 0
+			if n := (i + 3) / 4; i+3 == n*4 {
+				partIndex = 1
+			} else {
+				partIndex = 0
+			}
 		}
 	}
 
-	servicesVal, ok := ci.partitions[partIndex].LoadOrStore(ctxKV, ci.serviceScopesPool[partIndex].Get())
-	services := servicesVal.(map[int]*serviceScope)
+	scopeVal, ok := ci.partitions[partIndex].LoadOrStore(ctxKV, ci.serviceScopesPool.Get())
+	scope := scopeVal.(*contextScope)
 
 	if !ok {
 		ctxKey.pin()
-		return services[key], partIndex, func() {
-			ci.partitions[partIndex].Delete(ctxKV)
-			for key := range services {
-				services[key].lock()
-				services[key].value = nil
-				services[key].unlock()
+		context.AfterFunc(ctx, func() {
+			if scopeVal, ok := ci.partitions[partIndex].LoadAndDelete(ctxKV); ok {
+				scope := scopeVal.(*contextScope)
+
+				if !scope.cleanup.empty() {
+					Cleanup(scope.cleanup.clean).CallWithRecovery(PerContext)
+				}
+
+				for key := range scope.services {
+					scope.services[key].lock()
+					scope.services[key].value = nil
+					scope.services[key].unlock()
+				}
+
+				ci.serviceScopesPool.Put(scope)
+				cleanCtxKey(ctxKey)
 			}
-			ci.serviceScopesPool[partIndex].Put(services)
-			cleanCtxKey(ctxKey)
-		}, false
+		})
 	} else {
 		cleanCtxKey(ctxKey)
 	}
 
-	return services[key], partIndex, nil, true
+	return scope.services[key], scope.cleanup
 }

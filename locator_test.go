@@ -18,15 +18,12 @@ import (
 
 var _ = Describe("ServiceLocator", func() {
 	var ctx context.Context
+	var cancel context.CancelFunc
 
 	BeforeEach(func() {
-		var cancel context.CancelFunc
 		ctx, cancel = context.WithCancel(context.Background())
-
-		DeferCleanup(func() {
-			cancel()
-		})
 	})
+	AfterEach(func() { cancel() })
 
 	It("should return new instance every time for Transient", func() {
 		sl, err := tinysl.
@@ -48,24 +45,26 @@ var _ = Describe("ServiceLocator", func() {
 	})
 
 	It("should return same instance for same context for PerContext", func() {
-		sl, err := tinysl.
-			New(tinysl.SilenceUseSingletonWarnings).
-			Add(tinysl.PerContext, nameServiceConstructor).
-			Add(tinysl.PerContext, heroConstructor).
-			ServiceLocator()
+		for range 100 {
+			sl, err := tinysl.
+				New(tinysl.SilenceUseSingletonWarnings).
+				Add(tinysl.PerContext, nameServiceConstructor).
+				Add(tinysl.PerContext, heroConstructor).
+				ServiceLocator()
 
-		Expect(err).ShouldNot(HaveOccurred())
+			Expect(err).ShouldNot(HaveOccurred())
 
-		hero1, err1 := tinysl.Get[*Hero](ctx, sl)
+			hero1, err1 := tinysl.Get[*Hero](ctx, sl)
 
-		Expect(err1).ShouldNot(HaveOccurred())
+			Expect(err1).ShouldNot(HaveOccurred())
 
-		runtime.GC()
+			runtime.GC()
 
-		hero2, err2 := tinysl.Get[*Hero](ctx, sl)
+			hero2, err2 := tinysl.Get[*Hero](ctx, sl)
 
-		Expect(err2).ShouldNot(HaveOccurred())
-		Expect(hero1).To(BeIdenticalTo(hero2))
+			Expect(err2).ShouldNot(HaveOccurred())
+			Expect(hero1).To(BeIdenticalTo(hero2))
+		}
 	})
 
 	It("should return new instance for different context for PerContext", func() {
