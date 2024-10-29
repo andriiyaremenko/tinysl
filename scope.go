@@ -68,7 +68,12 @@ func (cs *serviceScope) unlock() {
 	cs.mu.Unlock()
 }
 
-func newContextInstances(keys []int) *contextInstances {
+type contextScope struct {
+	services map[int]*serviceScope
+	cleanup  cleanupNode
+}
+
+func newContextInstances(keys []int, buildCleanupNode func() cleanupNode) *contextInstances {
 	return &contextInstances{
 		keys: keys,
 		serviceScopesPool: sync.Pool{
@@ -79,7 +84,7 @@ func newContextInstances(keys []int) *contextInstances {
 					services[key] = &serviceScope{}
 				}
 
-				return &services
+				return &contextScope{services: services, cleanup: buildCleanupNode()}
 			},
 		},
 	}
@@ -91,7 +96,8 @@ type contextInstances struct {
 	keys              []int
 }
 
-func (ci *contextInstances) get(ctxKey *ctxScopeKey, key int) (*serviceScope, int, func(), bool) {
+func (ci *contextInstances) get(ctx context.Context, key int) (*serviceScope, cleanupNode) {
+	ctxKey := getCtxScopeKey(ctx)
 	ctxKV := ctxKey.key()
 
 	i := ctxKV % mod
@@ -158,27 +164,35 @@ func (ci *contextInstances) get(ctxKey *ctxScopeKey, key int) (*serviceScope, in
 		}
 	}
 
-	servicesVal, ok := ci.partitions[partIndex].LoadOrStore(ctxKV, ci.serviceScopesPool.Get())
-	service := (*servicesVal.(*map[int]*serviceScope))[key]
+	scopeVal, ok := ci.partitions[partIndex].LoadOrStore(ctxKV, ci.serviceScopesPool.Get())
+	scope := scopeVal.(*contextScope)
 
 	if !ok {
 		ctxKey.pin()
-		return service, partIndex, func() {
-			if servicesVal, ok := ci.partitions[partIndex].LoadAndDelete(ctxKV); ok {
-				servicesPtr := servicesVal.(*map[int]*serviceScope)
-				services := *servicesPtr
-				for key := range services {
-					services[key].lock()
-					services[key].value = nil
-					services[key].unlock()
+
+		ctxCleanup := func() {
+			if scopeVal, ok := ci.partitions[partIndex].LoadAndDelete(ctxKV); ok {
+				scope := scopeVal.(*contextScope)
+				for key := range scope.services {
+					scope.services[key].lock()
+					scope.services[key].value = nil
+					scope.services[key].unlock()
 				}
-				ci.serviceScopesPool.Put(servicesPtr)
+				ci.serviceScopesPool.Put(scope)
 				cleanCtxKey(ctxKey)
 			}
-		}, false
+		}
+
+		if scope.cleanup.len() == 0 {
+			scope.cleanup = singleCleanupFn(ctxCleanup)
+		} else {
+			scope.cleanup.updateCleanupNode(0, ctxCleanup)
+		}
+
+		context.AfterFunc(ctxKey.ctx, func() { Cleanup(scope.cleanup.clean).CallWithRecovery(PerContext) })
 	} else {
 		cleanCtxKey(ctxKey)
 	}
 
-	return service, partIndex, nil, true
+	return scope.services[key], scope.cleanup
 }

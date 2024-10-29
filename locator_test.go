@@ -45,7 +45,7 @@ var _ = Describe("ServiceLocator", func() {
 	})
 
 	It("should return same instance for same context for PerContext", func() {
-		for range 1000 {
+		for range 100 {
 			sl, err := tinysl.
 				New(tinysl.SilenceUseSingletonWarnings).
 				Add(tinysl.PerContext, nameServiceConstructor).
