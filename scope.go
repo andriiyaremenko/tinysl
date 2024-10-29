@@ -169,7 +169,7 @@ func (ci *contextInstances) get(ctx context.Context, key int) (*serviceScope, *c
 
 	if !ok {
 		ctxKey.pin()
-		context.AfterFunc(ctxKey.ctx, func() {
+		context.AfterFunc(ctx, func() {
 			if scopeVal, ok := ci.partitions[partIndex].LoadAndDelete(ctxKV); ok {
 				scope := scopeVal.(*contextScope)
 
