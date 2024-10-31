@@ -102,17 +102,17 @@ func (l *locator) Get(ctx context.Context, serviceName string) (service any, err
 		}
 	}()
 
-	return l.get(ctx, record)
+	return l.get(ctx, record, nil)
 }
 
-func (l *locator) get(ctx context.Context, record *locatorRecord) (any, error) {
+func (l *locator) get(ctx context.Context, record *locatorRecord, ctxScope *contextScope) (any, error) {
 	switch record.lifetime {
 	case Singleton:
 		return l.getSingleton(ctx, record)
 	case PerContext:
-		return l.getPerContext(ctx, record)
+		return l.getPerContext(ctx, record, ctxScope)
 	case Transient:
-		s, _, err := l.build(ctx, record)
+		s, _, err := l.build(ctx, record, ctxScope)
 		return s, err
 	default:
 		return nil, fmt.Errorf(
@@ -122,7 +122,7 @@ func (l *locator) get(ctx context.Context, record *locatorRecord) (any, error) {
 	}
 }
 
-func (l *locator) build(ctx context.Context, record *locatorRecord) (any, Cleanup, error) {
+func (l *locator) build(ctx context.Context, record *locatorRecord, ctxScope *contextScope) (any, Cleanup, error) {
 	constructor := record.constructor
 	fn := reflect.ValueOf(constructor)
 	argsPtr := reflectValuesPool.Get().(*[]reflect.Value)
@@ -138,7 +138,7 @@ func (l *locator) build(ctx context.Context, record *locatorRecord) (any, Cleanu
 			continue
 		}
 
-		service, err := l.get(ctx, dep)
+		service, err := l.get(ctx, dep, ctxScope)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -211,7 +211,7 @@ func (l *locator) getSingleton(ctx context.Context, record *locatorRecord) (any,
 		return *scope.value, nil
 	}
 
-	service, cleanUp, err := l.build(ctx, record)
+	service, cleanUp, err := l.build(ctx, record, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +235,7 @@ func (l *locator) getSingleton(ctx context.Context, record *locatorRecord) (any,
 	return service, nil
 }
 
-func (l *locator) getPerContext(ctx context.Context, record *locatorRecord) (any, error) {
+func (l *locator) getPerContext(ctx context.Context, record *locatorRecord, ctxScope *contextScope) (any, error) {
 	if ctx == nil {
 		return nil, newServiceBuilderError(ErrNilContext, record.lifetime, record.typeName)
 	}
@@ -244,24 +244,26 @@ func (l *locator) getPerContext(ctx context.Context, record *locatorRecord) (any
 		return nil, newServiceBuilderError(err, record.lifetime, record.typeName)
 	}
 
-	scope, cleanupNode := l.perContext.get(ctx, record.id)
-
-	scope.lock()
-	defer scope.unlock()
-
-	if !scope.empty() {
-		return *scope.value, nil
+	if ctxScope == nil {
+		ctxScope = l.perContext.get(ctx, record.id)
 	}
 
-	service, cleanUp, err := l.build(ctx, record)
+	ctxScope.services[record.id].lock()
+	defer ctxScope.services[record.id].unlock()
+
+	if !ctxScope.services[record.id].empty() {
+		return *ctxScope.services[record.id].value, nil
+	}
+
+	service, cleanUp, err := l.build(ctx, record, ctxScope)
 	if err != nil {
 		return nil, err
 	}
 
-	scope.value = &service
+	ctxScope.services[record.id].value = &service
 
 	if record.constructorType == withErrorAndCleanUp {
-		cleanupNode.updateCleanupNode(record.id, cleanUp)
+		ctxScope.cleanup.updateCleanupNode(record.id, cleanUp)
 	}
 
 	return service, nil

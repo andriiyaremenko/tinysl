@@ -94,7 +94,7 @@ type contextInstances struct {
 	partitions        [18]sync.Map
 }
 
-func (ci *contextInstances) get(ctx context.Context, key int32) (*serviceScope, *cleanupNode) {
+func (ci *contextInstances) get(ctx context.Context, key int32) *contextScope {
 	ctxKey := getCtxScopeKey(ctx)
 	ctxKV := ctxKey.key()
 
@@ -189,5 +189,5 @@ func (ci *contextInstances) get(ctx context.Context, key int32) (*serviceScope, 
 		cleanCtxKey(ctxKey)
 	}
 
-	return scope.services[key], scope.cleanup
+	return scope
 }
