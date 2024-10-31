@@ -60,9 +60,9 @@ const (
 type record struct {
 	constructor      any
 	typeName         string
-	id               int
 	constructorType  constructorType
 	lifetime         Lifetime
+	id               int32
 	dependsOnContext bool
 }
 type containerRecord struct {
@@ -76,7 +76,9 @@ func newContainer(ctx context.Context, silenceUseSingletonWarnings bool) *contai
 		constructors:              make(map[[2]string][]*containerRecord),
 		ignoreScopeAnalyzerErrors: silenceUseSingletonWarnings,
 		err:                       &atomic.Value{},
-		nextID:                    1,
+		nextSingletonID:           0,
+		nextPerContextID:          0,
+		nextTransientID:           0,
 	}
 }
 
@@ -86,7 +88,9 @@ type container struct {
 	constructors              map[[2]string][]*containerRecord
 	constructorsRWM           sync.RWMutex
 	ignoreScopeAnalyzerErrors bool
-	nextID                    int
+	nextSingletonID           int32
+	nextPerContextID          int32
+	nextTransientID           int32
 }
 
 func (c *container) Add(lifetime Lifetime, constructor any) Container {
@@ -126,7 +130,6 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 
 	r := &containerRecord{
 		record: record{
-			id:              c.nextID,
 			constructorType: cType,
 			lifetime:        lifetime,
 			constructor:     constructor,
@@ -139,9 +142,8 @@ func (c *container) Add(lifetime Lifetime, constructor any) Container {
 		return c
 	}
 
+	r.id = c.nextID(lifetime)
 	c.constructors[[2]string{serviceType, service}] = []*containerRecord{r}
-
-	c.nextID++
 
 	return c
 }
@@ -179,7 +181,6 @@ func (c *container) Decorate(lifetime Lifetime, constructor any) Container {
 	serviceType := t.Out(0).String()
 	r := &containerRecord{
 		record: record{
-			id:              c.nextID,
 			constructorType: cType,
 			lifetime:        lifetime,
 			constructor:     constructor,
@@ -197,9 +198,8 @@ func (c *container) Decorate(lifetime Lifetime, constructor any) Container {
 		return c
 	}
 
+	r.id = c.nextID(lifetime)
 	c.constructors[[2]string{serviceType, decorator}] = append(c.constructors[[2]string{serviceType, decorator}], r)
-
-	c.nextID++
 
 	return c
 }
@@ -272,7 +272,7 @@ func (c *container) ServiceLocator() (ServiceLocator, error) {
 		}
 	}
 
-	return newLocator(c.ctx, containerRecordsToLocatorRecords(c.constructors)), nil
+	return newLocator(c.ctx, containerRecordsToLocatorRecords(c.constructors), c.nextSingletonID, c.nextPerContextID), nil
 }
 
 func (c *container) canResolveDependencies(record containerRecord, role string, dependentServiceNames ...string) (bool, error) {
@@ -379,11 +379,28 @@ func (c *container) addPropertyFiller(lifetime Lifetime, role string, construct 
 		c.constructors[[2]string{serviceType, decorator}] = append(c.constructors[[2]string{serviceType, decorator}], r)
 	}
 
-	r.id = c.nextID
-
-	c.nextID++
+	r.id = c.nextID(lifetime)
 
 	return c
+}
+
+func (c *container) nextID(l Lifetime) (id int32) {
+	switch l {
+	case Singleton:
+		id = c.nextSingletonID
+		atomic.AddInt32(&c.nextSingletonID, 1)
+		return
+	case PerContext:
+		id = c.nextPerContextID
+		atomic.AddInt32(&c.nextPerContextID, 1)
+		return
+	case Transient:
+		id = c.nextTransientID
+		atomic.AddInt32(&c.nextTransientID, 1)
+		return
+	}
+
+	panic(LifetimeUnsupportedError(l.String()))
 }
 
 func getConstructorType(lifetime Lifetime, t reflect.Type) (constructorType, error) {
@@ -480,7 +497,7 @@ func containerRecordsToLocatorRecords(recordsMap map[[2]string][]*containerRecor
 			deps := make([]*locatorRecord, len(value.dependencies))
 			for i, dep := range value.dependencies {
 				if dep == contextDepName {
-					deps[i] = &locatorRecord{record: record{typeName: dep, id: 0}}
+					deps[i] = &locatorRecord{record: record{typeName: dep, id: -1}}
 					continue
 				}
 
@@ -500,7 +517,7 @@ func containerRecordsToLocatorRecords(recordsMap map[[2]string][]*containerRecor
 			deps := make([]*locatorRecord, len(value.dependencies))
 			for i, dep := range value.dependencies {
 				if dep == contextDepName {
-					deps[i] = &locatorRecord{record: record{typeName: dep, id: 0}}
+					deps[i] = &locatorRecord{record: record{typeName: dep, id: -1}}
 					continue
 				}
 

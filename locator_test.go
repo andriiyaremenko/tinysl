@@ -414,6 +414,10 @@ var _ = Describe("ServiceLocator", func() {
 				IgnoreAnyFunction(
 					"os/signal.NotifyContext.func1",
 				),
+			goleak.
+				IgnoreTopFunction(
+					"time.Sleep",
+				),
 		)
 
 		Expect(err).ShouldNot(HaveOccurred())

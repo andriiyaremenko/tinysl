@@ -24,39 +24,38 @@ type locatorRecord struct {
 	record
 }
 
-func newLocator(ctx context.Context, constructorsByType map[string]*locatorRecord) ServiceLocator {
+func newLocator(ctx context.Context, constructorsByType map[string]*locatorRecord, numS, numP int32) ServiceLocator {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	singletonsCleanupCh := make(chan cleanupNodeUpdate)
 
-	singletons := make([]*locatorRecord, 0)
-	perContexts := make([]*locatorRecord, 0)
+	singletons := make([]*locatorRecord, numS)
+	perContexts := make([]*locatorRecord, numP)
 
-	perCtxIDs := make([]int, 0)
 	for _, rec := range constructorsByType {
 		switch rec.lifetime {
 		case Singleton:
-			singletons = append(singletons, rec)
+			singletons[rec.id] = rec
 		case PerContext:
-			perCtxIDs = append(perCtxIDs, rec.id)
-			perContexts = append(perContexts, rec)
+			perContexts[rec.id] = rec
 		}
 	}
+
 	go singletonCleanupWorker(ctx, cancel, buildCleanupNodes(singletons), singletonsCleanupCh)
 
 	cleanupNodeBuilder := func() *cleanupNode {
 		return buildCleanupNodes(perContexts)
 	}
 
-	constructorsByID := make(map[int]*locatorRecord, len(constructorsByType))
-	for _, rec := range constructorsByType {
-		constructorsByID[rec.id] = rec
+	singletonsServices := make([]*serviceScope, numS)
+	for i := range singletonsServices {
+		singletonsServices[i] = &serviceScope{}
 	}
 
 	return &locator{
 		constructorsByType:  constructorsByType,
-		constructorsById:    constructorsByID,
-		perContext:          newContextInstances(perCtxIDs, cleanupNodeBuilder),
+		perContext:          newContextInstances(numP, cleanupNodeBuilder),
 		singletonsCleanupCh: singletonsCleanupCh,
+		singletons:          singletonsServices,
 	}
 }
 
@@ -64,9 +63,8 @@ type locator struct {
 	err                 atomic.Pointer[error]
 	perContext          *contextInstances
 	constructorsByType  map[string]*locatorRecord
-	constructorsById    map[int]*locatorRecord
 	singletonsCleanupCh chan<- cleanupNodeUpdate
-	singletons          sync.Map
+	singletons          []*serviceScope
 }
 
 func (l *locator) EnsureAvailable(serviceName string) {
@@ -135,7 +133,7 @@ func (l *locator) build(ctx context.Context, record *locatorRecord) (any, Cleanu
 	}()
 
 	for i, dep := range record.dependencies {
-		if i == 0 && dep.id == 0 {
+		if i == 0 && dep.id == -1 {
 			args = append(args, reflect.ValueOf(ctx))
 			continue
 		}
@@ -204,8 +202,7 @@ func (l *locator) build(ctx context.Context, record *locatorRecord) (any, Cleanu
 }
 
 func (l *locator) getSingleton(ctx context.Context, record *locatorRecord) (any, error) {
-	scopeV, _ := l.singletons.LoadOrStore(record.id, &serviceScope{})
-	scope := scopeV.(*serviceScope)
+	scope := l.singletons[record.id]
 
 	scope.lock()
 	defer scope.unlock()
@@ -227,7 +224,9 @@ func (l *locator) getSingleton(ctx context.Context, record *locatorRecord) (any,
 				id: record.id,
 				fn: func() {
 					cleanUp()
-					l.singletons.Delete(record.id)
+					l.singletons[record.id].lock()
+					l.singletons[record.id].value = nil
+					l.singletons[record.id].unlock()
 				},
 			}
 		}()
