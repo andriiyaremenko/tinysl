@@ -69,19 +69,18 @@ func (cs *serviceScope) unlock() {
 }
 
 type contextScope struct {
-	services map[int]*serviceScope
 	cleanup  *cleanupNode
+	services []*serviceScope
 }
 
-func newContextInstances(keys []int, buildCleanupNode func() *cleanupNode) *contextInstances {
+func newContextInstances(size int32, buildCleanupNode func() *cleanupNode) *contextInstances {
 	return &contextInstances{
-		keys: keys,
 		serviceScopesPool: sync.Pool{
 			New: func() any {
-				services := make(map[int]*serviceScope)
+				services := make([]*serviceScope, size)
 
-				for _, key := range keys {
-					services[key] = &serviceScope{}
+				for i := range services {
+					services[i] = &serviceScope{}
 				}
 
 				return &contextScope{services: services, cleanup: buildCleanupNode()}
@@ -93,10 +92,9 @@ func newContextInstances(keys []int, buildCleanupNode func() *cleanupNode) *cont
 type contextInstances struct {
 	serviceScopesPool sync.Pool
 	partitions        [18]sync.Map
-	keys              []int
 }
 
-func (ci *contextInstances) get(ctx context.Context, key int) (*serviceScope, *cleanupNode) {
+func (ci *contextInstances) get(ctx context.Context, key int32) *contextScope {
 	ctxKey := getCtxScopeKey(ctx)
 	ctxKV := ctxKey.key()
 
@@ -191,5 +189,5 @@ func (ci *contextInstances) get(ctx context.Context, key int) (*serviceScope, *c
 		cleanCtxKey(ctxKey)
 	}
 
-	return scope.services[key], scope.cleanup
+	return scope
 }

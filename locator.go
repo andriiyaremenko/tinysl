@@ -24,39 +24,38 @@ type locatorRecord struct {
 	record
 }
 
-func newLocator(ctx context.Context, constructorsByType map[string]*locatorRecord) ServiceLocator {
+func newLocator(ctx context.Context, constructorsByType map[string]*locatorRecord, numS, numP int32) ServiceLocator {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	singletonsCleanupCh := make(chan cleanupNodeUpdate)
 
-	singletons := make([]*locatorRecord, 0)
-	perContexts := make([]*locatorRecord, 0)
+	singletons := make([]*locatorRecord, numS)
+	perContexts := make([]*locatorRecord, numP)
 
-	perCtxIDs := make([]int, 0)
 	for _, rec := range constructorsByType {
 		switch rec.lifetime {
 		case Singleton:
-			singletons = append(singletons, rec)
+			singletons[rec.id] = rec
 		case PerContext:
-			perCtxIDs = append(perCtxIDs, rec.id)
-			perContexts = append(perContexts, rec)
+			perContexts[rec.id] = rec
 		}
 	}
+
 	go singletonCleanupWorker(ctx, cancel, buildCleanupNodes(singletons), singletonsCleanupCh)
 
 	cleanupNodeBuilder := func() *cleanupNode {
 		return buildCleanupNodes(perContexts)
 	}
 
-	constructorsByID := make(map[int]*locatorRecord, len(constructorsByType))
-	for _, rec := range constructorsByType {
-		constructorsByID[rec.id] = rec
+	singletonsServices := make([]*serviceScope, numS)
+	for i := range singletonsServices {
+		singletonsServices[i] = &serviceScope{}
 	}
 
 	return &locator{
 		constructorsByType:  constructorsByType,
-		constructorsById:    constructorsByID,
-		perContext:          newContextInstances(perCtxIDs, cleanupNodeBuilder),
+		perContext:          newContextInstances(numP, cleanupNodeBuilder),
 		singletonsCleanupCh: singletonsCleanupCh,
+		singletons:          singletonsServices,
 	}
 }
 
@@ -64,9 +63,8 @@ type locator struct {
 	err                 atomic.Pointer[error]
 	perContext          *contextInstances
 	constructorsByType  map[string]*locatorRecord
-	constructorsById    map[int]*locatorRecord
 	singletonsCleanupCh chan<- cleanupNodeUpdate
-	singletons          sync.Map
+	singletons          []*serviceScope
 }
 
 func (l *locator) EnsureAvailable(serviceName string) {
@@ -104,17 +102,17 @@ func (l *locator) Get(ctx context.Context, serviceName string) (service any, err
 		}
 	}()
 
-	return l.get(ctx, record)
+	return l.get(ctx, record, nil)
 }
 
-func (l *locator) get(ctx context.Context, record *locatorRecord) (any, error) {
+func (l *locator) get(ctx context.Context, record *locatorRecord, ctxScope *contextScope) (any, error) {
 	switch record.lifetime {
 	case Singleton:
 		return l.getSingleton(ctx, record)
 	case PerContext:
-		return l.getPerContext(ctx, record)
+		return l.getPerContext(ctx, record, ctxScope)
 	case Transient:
-		s, _, err := l.build(ctx, record)
+		s, _, err := l.build(ctx, record, ctxScope)
 		return s, err
 	default:
 		return nil, fmt.Errorf(
@@ -124,7 +122,7 @@ func (l *locator) get(ctx context.Context, record *locatorRecord) (any, error) {
 	}
 }
 
-func (l *locator) build(ctx context.Context, record *locatorRecord) (any, Cleanup, error) {
+func (l *locator) build(ctx context.Context, record *locatorRecord, ctxScope *contextScope) (any, Cleanup, error) {
 	constructor := record.constructor
 	fn := reflect.ValueOf(constructor)
 	argsPtr := reflectValuesPool.Get().(*[]reflect.Value)
@@ -135,12 +133,12 @@ func (l *locator) build(ctx context.Context, record *locatorRecord) (any, Cleanu
 	}()
 
 	for i, dep := range record.dependencies {
-		if i == 0 && dep.id == 0 {
+		if i == 0 && dep.id == -1 {
 			args = append(args, reflect.ValueOf(ctx))
 			continue
 		}
 
-		service, err := l.get(ctx, dep)
+		service, err := l.get(ctx, dep, ctxScope)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -204,8 +202,7 @@ func (l *locator) build(ctx context.Context, record *locatorRecord) (any, Cleanu
 }
 
 func (l *locator) getSingleton(ctx context.Context, record *locatorRecord) (any, error) {
-	scopeV, _ := l.singletons.LoadOrStore(record.id, &serviceScope{})
-	scope := scopeV.(*serviceScope)
+	scope := l.singletons[record.id]
 
 	scope.lock()
 	defer scope.unlock()
@@ -214,7 +211,7 @@ func (l *locator) getSingleton(ctx context.Context, record *locatorRecord) (any,
 		return *scope.value, nil
 	}
 
-	service, cleanUp, err := l.build(ctx, record)
+	service, cleanUp, err := l.build(ctx, record, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +224,9 @@ func (l *locator) getSingleton(ctx context.Context, record *locatorRecord) (any,
 				id: record.id,
 				fn: func() {
 					cleanUp()
-					l.singletons.Delete(record.id)
+					l.singletons[record.id].lock()
+					l.singletons[record.id].value = nil
+					l.singletons[record.id].unlock()
 				},
 			}
 		}()
@@ -236,7 +235,7 @@ func (l *locator) getSingleton(ctx context.Context, record *locatorRecord) (any,
 	return service, nil
 }
 
-func (l *locator) getPerContext(ctx context.Context, record *locatorRecord) (any, error) {
+func (l *locator) getPerContext(ctx context.Context, record *locatorRecord, ctxScope *contextScope) (any, error) {
 	if ctx == nil {
 		return nil, newServiceBuilderError(ErrNilContext, record.lifetime, record.typeName)
 	}
@@ -245,24 +244,26 @@ func (l *locator) getPerContext(ctx context.Context, record *locatorRecord) (any
 		return nil, newServiceBuilderError(err, record.lifetime, record.typeName)
 	}
 
-	scope, cleanupNode := l.perContext.get(ctx, record.id)
-
-	scope.lock()
-	defer scope.unlock()
-
-	if !scope.empty() {
-		return *scope.value, nil
+	if ctxScope == nil {
+		ctxScope = l.perContext.get(ctx, record.id)
 	}
 
-	service, cleanUp, err := l.build(ctx, record)
+	ctxScope.services[record.id].lock()
+	defer ctxScope.services[record.id].unlock()
+
+	if !ctxScope.services[record.id].empty() {
+		return *ctxScope.services[record.id].value, nil
+	}
+
+	service, cleanUp, err := l.build(ctx, record, ctxScope)
 	if err != nil {
 		return nil, err
 	}
 
-	scope.value = &service
+	ctxScope.services[record.id].value = &service
 
 	if record.constructorType == withErrorAndCleanUp {
-		cleanupNode.updateCleanupNode(record.id, cleanUp)
+		ctxScope.cleanup.updateCleanupNode(record.id, cleanUp)
 	}
 
 	return service, nil

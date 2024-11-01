@@ -9,13 +9,13 @@ var _ ServiceLocator = new(locator)
 
 type cleanupNodeUpdate struct {
 	fn Cleanup
-	id int
+	id int32
 }
 
 type cleanupNode struct {
 	fn         Cleanup
 	dependants []*cleanupNode
-	id         int
+	id         int32
 }
 
 func (ct *cleanupNode) clean() {
@@ -32,7 +32,7 @@ func (ct *cleanupNode) empty() bool {
 	return len(ct.dependants) == 0
 }
 
-func (node *cleanupNode) updateCleanupNode(id int, fn Cleanup) {
+func (node *cleanupNode) updateCleanupNode(id int32, fn Cleanup) {
 	if node.id == id {
 		node.fn = fn
 		return
@@ -46,7 +46,7 @@ func (node *cleanupNode) updateCleanupNode(id int, fn Cleanup) {
 type cleanupNodeRecord struct {
 	*cleanupNode
 	typeName     string
-	dependencies []int
+	dependencies []int32
 }
 
 func buildCleanupNodes(records []*locatorRecord) *cleanupNode {
@@ -103,7 +103,7 @@ func buildCleanupNodeRecord(rec *locatorRecord, records []*locatorRecord) *clean
 		id: rec.id,
 	}
 
-	deps := make([]int, 0)
+	deps := make([]int32, 0)
 	for _, depRecord := range rec.dependencies {
 		for _, dep := range records {
 			if rec.constructorType == withErrorAndCleanUp && dep.id == depRecord.id && dep.lifetime == rec.lifetime {
