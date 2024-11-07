@@ -304,7 +304,7 @@ func (c *container) canResolveDependencies(record containerRecord, role string, 
 		for _, r := range rs {
 			if !c.ignoreScopeAnalyzerErrors && record.lifetime > r.lifetime {
 				return false, newServiceBuilderError(
-					newScopeHierarchyError(record, *r),
+					newScopeHierarchyError(r.lifetime, r.typeName),
 					record.lifetime,
 					record.typeName,
 				)
