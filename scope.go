@@ -94,7 +94,7 @@ type contextInstances struct {
 	partitions        [18]sync.Map
 }
 
-func (ci *contextInstances) get(ctx context.Context, key int32) *contextScope {
+func (ci *contextInstances) get(ctx context.Context) *contextScope {
 	ctxKey := getCtxScopeKey(ctx)
 	ctxKV := ctxKey.key()
 

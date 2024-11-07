@@ -245,7 +245,7 @@ func (l *locator) getPerContext(ctx context.Context, record *locatorRecord, ctxS
 	}
 
 	if ctxScope == nil {
-		ctxScope = l.perContext.get(ctx, record.id)
+		ctxScope = l.perContext.get(ctx)
 	}
 
 	ctxScope.services[record.id].lock()
